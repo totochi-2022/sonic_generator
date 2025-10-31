@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ program.name }} - 音波洗浄システム</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🔊 {{ program.name }}</h1>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="mb-20">
+            <a href="/" class="btn">← 一覧に戻る</a>
+            <button class="btn btn-success" onclick="playProgram('{{ program.id }}')">
+                ▶️ 全体を再生
+            </button>
+            <button class="btn btn-danger" onclick="stopPlayback()">
+                ⏹️ 停止
+            </button>
+            <button class="btn" onclick="exportProgram('{{ program.id }}', '{{ program.name }}')">
+                💾 エクスポート
+            </button>
+        </div>
+
+        <!-- ステージセクション -->
+        <div class="stages-container" id="stages-container">
+            <h2>ステージ ({{ program.stages|length }}/5)</h2>
+
+            {% for stage in program.stages %}
+            {% set stage_idx = loop.index0 %}
+            <div class="stage">
+                <div class="stage-header">
+                    <div>
+                        <h3>{{ stage.name }}</h3>
+                        <p style="color: #7f8c8d; font-size: 14px; margin-top: 5px;">時間: {{ stage.duration }}秒</p>
+                    </div>
+                    <div>
+                        <button class="btn btn-small"
+                                onclick="showEditStageForm('{{ program.id }}', {{ stage_idx }})">
+                            ✏️ 編集
+                        </button>
+                        <button class="btn btn-small"
+                                onclick="showWaveform('{{ program.id }}', {{ stage_idx }})">
+                            📊 波形
+                        </button>
+                        <button class="btn btn-small btn-success"
+                                onclick="playStage('{{ program.id }}', {{ stage_idx }})">
+                            ▶️ 再生
+                        </button>
+                        <button class="btn btn-small btn-danger"
+                                onclick="deleteStage('{{ program.id }}', {{ stage_idx }})">
+                            🗑️ 削除
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 波形表示エリア -->
+                <div id="waveform-{{ stage_idx }}" style="display: none; margin-top: 15px; background: #2c3e50; padding: 10px; border-radius: 5px;">
+                    <canvas id="waveform-canvas-{{ stage_idx }}" width="1200" height="150" style="width: 100%; height: auto; background: #34495e;"></canvas>
+                </div>
+
+                <!-- トラックリスト -->
+                <div class="tracks-container">
+                    <h4>トラック ({{ stage.tracks|length }}/5)</h4>
+
+                    {% for track in stage.tracks %}
+                    <div class="track" style="{% if not track.enabled %}opacity: 0.5;{% endif %}">
+                        <div class="track-info">
+                            <span class="track-type">{{ track.type }}</span>
+                            {% if not track.enabled %}
+                            <span style="color: #e74c3c; font-weight: bold; margin-left: 10px;">無効</span>
+                            {% endif %}
+
+                            {% if track.type == "tone" %}
+                            <p><strong>周波数:</strong> {{ track.frequency }}Hz | <strong>波形:</strong> {{ track.wave_type }} | <strong>音量:</strong> {{ (track.volume * 100)|int }}%</p>
+                            {% elif track.type == "sweep" %}
+                            <p><strong>スイープ:</strong> {{ track.sweep_start }}-{{ track.sweep_end }}Hz (周期{{ track.sweep_period }}秒) | <strong>波形:</strong> {{ track.wave_type }} | <strong>音量:</strong> {{ (track.volume * 100)|int }}%</p>
+                            {% elif track.type == "wave_file" %}
+                            <p><strong>ファイル:</strong> {{ track.file_path }} | <strong>モード:</strong> {{ track.play_mode }} | <strong>音量:</strong> {{ (track.volume * 100)|int }}%</p>
+                            {% endif %}
+                        </div>
+                        <div class="track-actions">
+                            <button class="btn btn-small btn-success"
+                                    onclick="playTrack('{{ program.id }}', {{ stage_idx }}, {{ loop.index0 }})">
+                                ▶️
+                            </button>
+                            <button class="btn btn-small"
+                                    onclick="showEditTrackForm('{{ program.id }}', {{ stage_idx }}, {{ loop.index0 }})">
+                                ✏️
+                            </button>
+                            <button class="btn btn-small {% if track.enabled %}btn-warning{% else %}btn-success{% endif %}"
+                                    onclick="toggleTrack('{{ program.id }}', {{ stage_idx }}, {{ loop.index0 }}, {{ 'false' if track.enabled else 'true' }})">
+                                {% if track.enabled %}⏸️{% else %}▶️{% endif %}
+                            </button>
+                            <button class="btn btn-small btn-danger"
+                                    onclick="deleteTrack('{{ program.id }}', {{ stage_idx }}, {{ loop.index0 }})">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    {% if stage.tracks|length < 5 %}
+                    <div class="mt-20">
+                        <button class="btn btn-small btn-success"
+                                onclick="showAddTrackForm({{ stage_idx }})">
+                            ➕ トラック追加
+                        </button>
+                    </div>
+
+                    <!-- トラック追加フォーム -->
+                    <div id="add-track-form-{{ stage_idx }}" style="display: none; margin-top: 15px; padding: 15px; background: white; border-radius: 5px;">
+                        <h4>新しいトラックを追加</h4>
+
+                        <div class="form-group">
+                            <label>トラック種類:</label>
+                            <select id="track-type-{{ stage_idx }}" onchange="updateTrackForm({{ stage_idx }})">
+                                <option value="tone">トーン (単一周波数)</option>
+                                <option value="sweep">スイープ (周波数変化)</option>
+                                <option value="wave_file">WAVファイル</option>
+                            </select>
+                        </div>
+
+                        <!-- トーン用フォーム -->
+                        <div id="tone-fields-{{ stage_idx }}" class="track-type-fields">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>周波数 (Hz):</label>
+                                    <input type="number" id="tone-frequency-{{ stage_idx }}" value="600" min="20" max="40000">
+                                </div>
+                                <div class="form-group">
+                                    <label>波形:</label>
+                                    <select id="tone-wave-type-{{ stage_idx }}">
+                                        <option value="triangle">三角波</option>
+                                        <option value="sine">正弦波</option>
+                                        <option value="square">矩形波</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- スイープ用フォーム -->
+                        <div id="sweep-fields-{{ stage_idx }}" class="track-type-fields" style="display: none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>開始周波数 (Hz):</label>
+                                    <input type="number" id="sweep-start-{{ stage_idx }}" value="400" min="20" max="40000">
+                                </div>
+                                <div class="form-group">
+                                    <label>終了周波数 (Hz):</label>
+                                    <input type="number" id="sweep-end-{{ stage_idx }}" value="800" min="20" max="40000">
+                                </div>
+                                <div class="form-group">
+                                    <label>スイープ周期 (秒):</label>
+                                    <input type="number" id="sweep-period-{{ stage_idx }}" value="5" step="0.1" min="0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label>波形:</label>
+                                    <select id="sweep-wave-type-{{ stage_idx }}">
+                                        <option value="triangle">三角波</option>
+                                        <option value="sine">正弦波</option>
+                                        <option value="square">矩形波</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- WAVファイル用フォーム -->
+                        <div id="wave-file-fields-{{ stage_idx }}" class="track-type-fields" style="display: none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>ファイルパス:</label>
+                                    <input type="text" id="wave-file-path-{{ stage_idx }}" placeholder="例: audio/sound.wav">
+                                </div>
+                                <div class="form-group">
+                                    <label>再生モード:</label>
+                                    <select id="wave-play-mode-{{ stage_idx }}">
+                                        <option value="once">1回のみ</option>
+                                        <option value="repeat">リピート</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>リピート周期 (秒):</label>
+                                    <input type="number" id="wave-repeat-period-{{ stage_idx }}" value="5" step="0.1" min="0.1">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 共通フィールド -->
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>音量 (%):</label>
+                                <input type="number" id="track-volume-{{ stage_idx }}" value="70" min="0" max="100">
+                            </div>
+                        </div>
+
+                        <div class="mt-20">
+                            <button class="btn btn-success" onclick="addTrack('{{ program.id }}', {{ stage_idx }})">
+                                追加
+                            </button>
+                            <button class="btn" onclick="hideAddTrackForm({{ stage_idx }})">
+                                キャンセル
+                            </button>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+
+            {% if program.stages|length < 5 %}
+            <div class="mt-20">
+                <button class="btn btn-success" onclick="addStage('{{ program.id }}')">
+                    ➕ ステージ追加
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function showAddTrackForm(stageIdx) {
+            document.getElementById('add-track-form-' + stageIdx).style.display = 'block';
+            updateTrackForm(stageIdx);
+        }
+
+        function hideAddTrackForm(stageIdx) {
+            document.getElementById('add-track-form-' + stageIdx).style.display = 'none';
+        }
+
+        function updateTrackForm(stageIdx) {
+            const trackType = document.getElementById('track-type-' + stageIdx).value;
+
+            // 全てのフィールドを非表示
+            document.getElementById('tone-fields-' + stageIdx).style.display = 'none';
+            document.getElementById('sweep-fields-' + stageIdx).style.display = 'none';
+            document.getElementById('wave-file-fields-' + stageIdx).style.display = 'none';
+
+            // 選択されたタイプのフィールドを表示
+            if (trackType === 'tone') {
+                document.getElementById('tone-fields-' + stageIdx).style.display = 'block';
+            } else if (trackType === 'sweep') {
+                document.getElementById('sweep-fields-' + stageIdx).style.display = 'block';
+            } else if (trackType === 'wave_file') {
+                document.getElementById('wave-file-fields-' + stageIdx).style.display = 'block';
+            }
+        }
+
+        function addTrack(programId, stageIdx) {
+            const trackType = document.getElementById('track-type-' + stageIdx).value;
+            const volume = parseFloat(document.getElementById('track-volume-' + stageIdx).value) / 100;
+
+            let trackData = {
+                type: trackType,
+                volume: volume,
+                enabled: true
+            };
+
+            if (trackType === 'tone') {
+                trackData.frequency = parseInt(document.getElementById('tone-frequency-' + stageIdx).value);
+                trackData.wave_type = document.getElementById('tone-wave-type-' + stageIdx).value;
+            } else if (trackType === 'sweep') {
+                trackData.sweep_start = parseInt(document.getElementById('sweep-start-' + stageIdx).value);
+                trackData.sweep_end = parseInt(document.getElementById('sweep-end-' + stageIdx).value);
+                trackData.sweep_period = parseFloat(document.getElementById('sweep-period-' + stageIdx).value);
+                trackData.wave_type = document.getElementById('sweep-wave-type-' + stageIdx).value;
+            } else if (trackType === 'wave_file') {
+                trackData.file_path = document.getElementById('wave-file-path-' + stageIdx).value;
+                trackData.play_mode = document.getElementById('wave-play-mode-' + stageIdx).value;
+                trackData.repeat_period = parseFloat(document.getElementById('wave-repeat-period-' + stageIdx).value);
+            }
+
+            fetch(`/api/programs/${programId}/stages/${stageIdx}/tracks`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(trackData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
+        }
+
+        function deleteTrack(programId, stageIdx, trackIdx) {
+            if (!confirm('このトラックを削除してもよろしいですか？')) return;
+
+            fetch(`/api/programs/${programId}/stages/${stageIdx}/tracks/${trackIdx}`, {
+                method: 'DELETE'
+            })
+            .then(() => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('削除に失敗しました: ' + error);
+            });
+        }
+
+        function addStage(programId) {
+            const name = prompt('ステージ名を入力してください:', 'ステージ ' + ({{ program.stages|length }} + 1));
+            if (!name) return;
+
+            const duration = prompt('ステージの再生時間（秒）を入力してください:', '30');
+            if (!duration) return;
+
+            fetch(`/api/programs/${programId}/stages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: name,
+                    duration: parseFloat(duration),
+                    tracks: []
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
+        }
+
+        function deleteStage(programId, stageIdx) {
+            if (!confirm('このステージを削除してもよろしいですか？')) return;
+
+            fetch(`/api/programs/${programId}/stages/${stageIdx}`, {
+                method: 'DELETE'
+            })
+            .then(() => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('削除に失敗しました: ' + error);
+            });
+        }
+
+        function playProgram(programId) {
+            fetch(`/api/play/${programId}`, {
+                method: 'POST'
+            })
+            .catch(error => {
+                alert('再生エラー: ' + error);
+            });
+        }
+
+        function exportProgram(programId, programName) {
+            window.location.href = '/api/export/' + programId;
+        }
+
+        function stopPlayback() {
+            fetch('/api/stop', {
+                method: 'POST'
+            })
+            .then(() => {
+                // 全ての波形スクロールを停止
+                for (let idx in waveformAnimations) {
+                    stopWaveformScroll(idx);
+                }
+            })
+            .catch(error => {
+                alert('停止エラー: ' + error);
+            });
+        }
+
+        function playStage(programId, stageIdx) {
+            fetch(`/api/play/stage/${programId}/${stageIdx}`, {
+                method: 'POST'
+            })
+            .then(() => {
+                // 該当ステージの波形スクロールを開始
+                startWaveformScroll(stageIdx);
+            })
+            .catch(error => {
+                alert('再生エラー: ' + error);
+            });
+        }
+
+        function playTrack(programId, stageIdx, trackIdx) {
+            fetch(`/api/play/track/${programId}/${stageIdx}/${trackIdx}`, {
+                method: 'POST'
+            })
+            .then(() => {
+                // 該当ステージの波形スクロールを開始
+                startWaveformScroll(stageIdx);
+            })
+            .catch(error => {
+                alert('再生エラー: ' + error);
+            });
+        }
+
+        function toggleTrack(programId, stageIdx, trackIdx, newEnabledState) {
+            // トラックデータを取得
+            fetch(`/api/programs/${programId}`)
+            .then(response => response.json())
+            .then(program => {
+                const track = program.stages[stageIdx].tracks[trackIdx];
+                track.enabled = newEnabledState;
+
+                // 更新
+                return fetch(`/api/programs/${programId}/stages/${stageIdx}/tracks/${trackIdx}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(track)
+                });
+            })
+            .then(() => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
+        }
+
+        function showEditTrackForm(programId, stageIdx, trackIdx) {
+            // トラックデータを取得
+            fetch(`/api/programs/${programId}`)
+            .then(response => response.json())
+            .then(program => {
+                const track = program.stages[stageIdx].tracks[trackIdx];
+
+                let formHtml = '<div style="background: white; padding: 20px; border-radius: 5px; margin-top: 15px;">';
+                formHtml += '<h4>トラックを編集</h4>';
+
+                if (track.type === 'tone') {
+                    formHtml += `
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>周波数 (Hz):</label>
+                                <input type="number" id="edit-frequency" value="${track.frequency}" min="20" max="40000">
+                            </div>
+                            <div class="form-group">
+                                <label>波形:</label>
+                                <select id="edit-wave-type">
+                                    <option value="triangle" ${track.wave_type === 'triangle' ? 'selected' : ''}>三角波</option>
+                                    <option value="sine" ${track.wave_type === 'sine' ? 'selected' : ''}>正弦波</option>
+                                    <option value="square" ${track.wave_type === 'square' ? 'selected' : ''}>矩形波</option>
+                                </select>
+                            </div>
+                        </div>
+                    `;
+                } else if (track.type === 'sweep') {
+                    formHtml += `
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>開始周波数 (Hz):</label>
+                                <input type="number" id="edit-sweep-start" value="${track.sweep_start}" min="20" max="40000">
+                            </div>
+                            <div class="form-group">
+                                <label>終了周波数 (Hz):</label>
+                                <input type="number" id="edit-sweep-end" value="${track.sweep_end}" min="20" max="40000">
+                            </div>
+                            <div class="form-group">
+                                <label>スイープ周期 (秒):</label>
+                                <input type="number" id="edit-sweep-period" value="${track.sweep_period}" step="0.1" min="0.1">
+                            </div>
+                            <div class="form-group">
+                                <label>波形:</label>
+                                <select id="edit-wave-type">
+                                    <option value="triangle" ${track.wave_type === 'triangle' ? 'selected' : ''}>三角波</option>
+                                    <option value="sine" ${track.wave_type === 'sine' ? 'selected' : ''}>正弦波</option>
+                                    <option value="square" ${track.wave_type === 'square' ? 'selected' : ''}>矩形波</option>
+                                </select>
+                            </div>
+                        </div>
+                    `;
+                } else if (track.type === 'wave_file') {
+                    formHtml += `
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>ファイルパス:</label>
+                                <input type="text" id="edit-file-path" value="${track.file_path}">
+                            </div>
+                            <div class="form-group">
+                                <label>再生モード:</label>
+                                <select id="edit-play-mode">
+                                    <option value="once" ${track.play_mode === 'once' ? 'selected' : ''}>1回のみ</option>
+                                    <option value="repeat" ${track.play_mode === 'repeat' ? 'selected' : ''}>リピート</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>リピート周期 (秒):</label>
+                                <input type="number" id="edit-repeat-period" value="${track.repeat_period}" step="0.1" min="0.1">
+                            </div>
+                        </div>
+                    `;
+                }
+
+                formHtml += `
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>音量 (%):</label>
+                            <input type="number" id="edit-volume" value="${Math.round(track.volume * 100)}" min="0" max="100">
+                        </div>
+                    </div>
+                    <div class="mt-20">
+                        <button class="btn btn-success" onclick="updateTrack('${programId}', ${stageIdx}, ${trackIdx}, '${track.type}')">
+                            更新
+                        </button>
+                        <button class="btn" onclick="hideEditTrackForm()">
+                            キャンセル
+                        </button>
+                    </div>
+                </div>`;
+
+                const container = document.createElement('div');
+                container.id = 'edit-track-form';
+                container.innerHTML = formHtml;
+
+                // 既存の編集フォームを削除
+                const existingForm = document.getElementById('edit-track-form');
+                if (existingForm) {
+                    existingForm.remove();
+                }
+
+                // フォームを追加
+                document.querySelector('.stages-container').insertBefore(container, document.querySelector('.stages-container').firstChild);
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
+        }
+
+        function hideEditTrackForm() {
+            const form = document.getElementById('edit-track-form');
+            if (form) {
+                form.remove();
+            }
+        }
+
+        function updateTrack(programId, stageIdx, trackIdx, trackType) {
+            const volume = parseFloat(document.getElementById('edit-volume').value) / 100;
+
+            let trackData = {
+                type: trackType,
+                volume: volume,
+                enabled: true
+            };
+
+            if (trackType === 'tone') {
+                trackData.frequency = parseInt(document.getElementById('edit-frequency').value);
+                trackData.wave_type = document.getElementById('edit-wave-type').value;
+            } else if (trackType === 'sweep') {
+                trackData.sweep_start = parseInt(document.getElementById('edit-sweep-start').value);
+                trackData.sweep_end = parseInt(document.getElementById('edit-sweep-end').value);
+                trackData.sweep_period = parseFloat(document.getElementById('edit-sweep-period').value);
+                trackData.wave_type = document.getElementById('edit-wave-type').value;
+            } else if (trackType === 'wave_file') {
+                trackData.file_path = document.getElementById('edit-file-path').value;
+                trackData.play_mode = document.getElementById('edit-play-mode').value;
+                trackData.repeat_period = parseFloat(document.getElementById('edit-repeat-period').value);
+            }
+
+            fetch(`/api/programs/${programId}/stages/${stageIdx}/tracks/${trackIdx}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(trackData)
+            })
+            .then(() => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
+        }
+
+        // 波形アニメーション用の変数
+        const waveformAnimations = {};
+
+        function showWaveform(programId, stageIdx) {
+            const waveformDiv = document.getElementById('waveform-' + stageIdx);
+            const canvas = document.getElementById('waveform-canvas-' + stageIdx);
+
+            if (waveformDiv.style.display === 'none') {
+                // 波形を表示
+                waveformDiv.style.display = 'block';
+
+                // 波形データを取得して描画
+                fetch(`/api/waveform/data/stage/${programId}/${stageIdx}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (!data.waveform || !Array.isArray(data.waveform)) {
+                            throw new Error('Invalid waveform data');
+                        }
+                        initWaveformDisplay(canvas, data.waveform, data.duration, stageIdx);
+                    })
+                    .catch(error => {
+                        console.error('Waveform error:', error);
+                        alert('波形データの取得に失敗しました: ' + error.message);
+                        waveformDiv.style.display = 'none';
+                    });
+            } else {
+                // 波形を非表示
+                waveformDiv.style.display = 'none';
+
+                // アニメーションを停止
+                if (waveformAnimations[stageIdx]) {
+                    cancelAnimationFrame(waveformAnimations[stageIdx].animationId);
+                    waveformAnimations[stageIdx] = null;
+                }
+            }
+        }
+
+        function initWaveformDisplay(canvas, waveformData, duration, stageIdx) {
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // アニメーション状態
+            let offset = 0;
+            let isPlaying = false;
+            let startTime = null;
+            const scrollSpeed = width / (duration * 60); // 60fps想定でのスクロール速度
+
+            function drawWaveform(timestamp) {
+                // 背景をクリア
+                ctx.fillStyle = '#34495e';
+                ctx.fillRect(0, 0, width, height);
+
+                // 中央線を描画
+                ctx.strokeStyle = '#7f8c8d';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, height / 2);
+                ctx.lineTo(width, height / 2);
+                ctx.stroke();
+
+                // 波形を描画
+                ctx.strokeStyle = isPlaying ? '#3498db' : '#7f8c8d';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+
+                const samplesPerPixel = waveformData.length / width;
+
+                for (let x = 0; x < width; x++) {
+                    // スクロールオフセットを考慮
+                    const dataIndex = Math.floor(((x + offset) % width) * samplesPerPixel);
+                    if (dataIndex < waveformData.length) {
+                        const sample = waveformData[dataIndex];
+                        const y = (height / 2) - (sample * height / 2);
+
+                        if (x === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                }
+
+                ctx.stroke();
+
+                // 再生中のみオフセットを更新（スクロール）
+                if (isPlaying) {
+                    offset = (offset + scrollSpeed) % width;
+                }
+
+                // 次のフレームをリクエスト
+                if (waveformAnimations[stageIdx]) {
+                    waveformAnimations[stageIdx].animationId = requestAnimationFrame(drawWaveform);
+                }
+            }
+
+            // アニメーション状態を保存
+            waveformAnimations[stageIdx] = {
+                animationId: null,
+                setPlaying: function(playing) {
+                    isPlaying = playing;
+                    if (!playing) {
+                        offset = 0; // 停止時にリセット
+                    }
+                }
+            };
+
+            // 初期描画開始
+            waveformAnimations[stageIdx].animationId = requestAnimationFrame(drawWaveform);
+        }
+
+        function startWaveformScroll(stageIdx) {
+            if (waveformAnimations[stageIdx]) {
+                waveformAnimations[stageIdx].setPlaying(true);
+            }
+        }
+
+        function stopWaveformScroll(stageIdx) {
+            if (waveformAnimations[stageIdx]) {
+                waveformAnimations[stageIdx].setPlaying(false);
+            }
+        }
+
+        function showEditStageForm(programId, stageIdx) {
+            // ステージデータを取得
+            fetch(`/api/programs/${programId}`)
+            .then(response => response.json())
+            .then(program => {
+                const stage = program.stages[stageIdx];
+
+                const newName = prompt('ステージ名を入力してください:', stage.name);
+                if (newName === null) return;
+
+                const newDuration = prompt('再生時間（秒）を入力してください:', stage.duration);
+                if (newDuration === null) return;
+
+                // ステージデータを更新
+                stage.name = newName;
+                stage.duration = parseFloat(newDuration);
+
+                // 更新リクエスト
+                fetch(`/api/programs/${programId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(program)
+                })
+                .then(() => {
+                    window.location.reload();
+                })
+                .catch(error => {
+                    alert('エラーが発生しました: ' + error);
+                });
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
+        }
+    </script>
+</body>
+</html>
