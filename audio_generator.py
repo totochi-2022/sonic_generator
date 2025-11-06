@@ -115,12 +115,16 @@ class AudioGenerator:
         return audio.astype(np.float32)
 
     @staticmethod
-    def mix_tracks(tracks: list[np.ndarray]) -> np.ndarray:
+    def mix_tracks(tracks: list[np.ndarray], normalize_mode: str = "clip") -> np.ndarray:
         """
         複数のトラックをミックス（重ね合わせ）
 
         Args:
             tracks: ミックスするトラックのリスト
+            normalize_mode: 正規化モード
+                - "peak": 常に最大振幅を1.0に正規化（デフォルト）
+                - "clip": 1.0を超えた場合のみ正規化
+                - "none": 正規化しない（クリッピング発生）
 
         Returns:
             ミックスされた音声データ
@@ -143,9 +147,20 @@ class AudioGenerator:
         # トラックを重ね合わせ
         mixed = np.sum(padded_tracks, axis=0)
 
-        # クリッピング防止のため、最大振幅で正規化
+        # 正規化処理
         max_amplitude = np.max(np.abs(mixed))
-        if max_amplitude > 1.0:
-            mixed = mixed / max_amplitude
+        if normalize_mode == "peak":
+            # 常に最大振幅を1.0に正規化
+            if max_amplitude > 0:
+                mixed = mixed / max_amplitude
+        elif normalize_mode == "clip":
+            # 1.0を超えた場合のみ正規化
+            if max_amplitude > 1.0:
+                mixed = mixed / max_amplitude
+        elif normalize_mode == "none":
+            # 正規化しない
+            pass
+        else:
+            raise ValueError(f"Unknown normalize_mode: {normalize_mode}")
 
         return mixed.astype(np.float32)

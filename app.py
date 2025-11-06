@@ -103,7 +103,7 @@ def generate_audio_for_track(track: Track, duration: float, generator: AudioGene
         raise ValueError(f"Unknown track type: {track.type}")
 
 
-def generate_audio_for_stage(stage: Stage, generator: AudioGenerator) -> np.ndarray:
+def generate_audio_for_stage(stage: Stage, generator: AudioGenerator, normalize_mode: str = "peak") -> np.ndarray:
     """ステージの音声データを生成（有効なトラックのみミックス）"""
     audio_tracks = []
     for track in stage.tracks:
@@ -114,7 +114,7 @@ def generate_audio_for_stage(stage: Stage, generator: AudioGenerator) -> np.ndar
         # 空のステージの場合、ステージの時間分の無音を返す
         return np.zeros(int(generator.sample_rate * stage.duration), dtype=np.float32)
 
-    return AudioGenerator.mix_tracks(audio_tracks)
+    return AudioGenerator.mix_tracks(audio_tracks, normalize_mode=normalize_mode)
 
 
 def stop_current_playback():
@@ -161,11 +161,18 @@ def play_audio_realtime(audio_data: np.ndarray, sample_rate: int):
             if current_playback_process:
                 current_playback_process = None
             is_playing = False
-    except:
+    except Exception as e:
+        print(f"Playback error: {e}")
         with playback_lock:
+            current_playback_process = None
             is_playing = False
         raise
     finally:
+        # 確実にフラグをリセット
+        with playback_lock:
+            if current_playback_process:
+                current_playback_process = None
+            is_playing = False
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
@@ -346,7 +353,7 @@ def _play_program_task(program_id: str):
     # 全ステージの音声を生成して連結（切れ目なく再生）
     all_audio = []
     for stage in program.stages:
-        stage_audio = generate_audio_for_stage(stage, generator)
+        stage_audio = generate_audio_for_stage(stage, generator, program.normalize_mode)
         all_audio.append(stage_audio)
 
     # 連結
@@ -395,7 +402,7 @@ def _play_stage_task(program_id: str, stage_idx: int):
     stage = program.stages[stage_idx]
 
     # ステージの音声を生成
-    stage_audio = generate_audio_for_stage(stage, generator)
+    stage_audio = generate_audio_for_stage(stage, generator, program.normalize_mode)
 
     # リアルタイム再生
     play_audio_realtime(stage_audio, generator.sample_rate)
@@ -475,7 +482,7 @@ async def get_stage_waveform_data(program_id: str, stage_idx: int):
     stage = program.stages[stage_idx]
 
     # ステージの音声を生成
-    stage_audio = generate_audio_for_stage(stage, generator)
+    stage_audio = generate_audio_for_stage(stage, generator, program.normalize_mode)
 
     # ダウンサンプリング（表示用）
     max_samples = 5000
@@ -506,7 +513,7 @@ async def get_stage_waveform(program_id: str, stage_idx: int):
     stage = program.stages[stage_idx]
 
     # ステージの音声を生成
-    stage_audio = generate_audio_for_stage(stage, generator)
+    stage_audio = generate_audio_for_stage(stage, generator, program.normalize_mode)
 
     # 波形画像を生成
     plt.figure(figsize=(12, 3), facecolor='#2c3e50')
@@ -556,7 +563,7 @@ async def export_program(program_id: str):
     # 全ステージの音声を生成して連結
     all_audio = []
     for stage in program.stages:
-        stage_audio = generate_audio_for_stage(stage, generator)
+        stage_audio = generate_audio_for_stage(stage, generator, program.normalize_mode)
         all_audio.append(stage_audio)
 
     # 連結

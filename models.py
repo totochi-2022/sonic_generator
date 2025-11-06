@@ -55,13 +55,18 @@ class Program(BaseModel):
     name: str
     stages: List[Stage] = Field(default_factory=list, max_length=5)
     sample_rate: int = Field(default=44100)
+    normalize_mode: Literal["peak", "clip", "none"] = Field(
+        default="clip",
+        description="正規化モード: peak=常に1.0, clip=超過時のみ, none=なし"
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "name": "音波洗浄プログラム1",
                 "stages": [],
-                "sample_rate": 44100
+                "sample_rate": 44100,
+                "normalize_mode": "peak"
             }
         }
 
