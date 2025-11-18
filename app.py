@@ -9,8 +9,6 @@ import os
 import uuid
 from pathlib import Path
 from typing import List, Dict
-import subprocess
-import tempfile
 import numpy as np
 from scipy.io import wavfile
 import threading
@@ -19,11 +17,18 @@ import matplotlib
 matplotlib.use('Agg')  # バックエンドをAggに設定（GUIなし）
 import matplotlib.pyplot as plt
 import io
+import platform
+import subprocess
+import tempfile
 
 from models import Program, Stage, Track, PlaybackStatus
 from audio_generator import AudioGenerator
 
 app = FastAPI(title="音波洗浄システム")
+
+# オーディオバックエンド設定（"paplay" or "sounddevice"）
+# コマンドライン引数で指定可能（デフォルトはpaplay）
+AUDIO_BACKEND = "paplay"
 
 # 静的ファイルとテンプレート
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -41,13 +46,20 @@ programs_db: Dict[str, Program] = {}
 # 再生ステータス
 playback_status = PlaybackStatus()
 
-# 再生中のプロセス管理
+# 再生管理
 current_playback_process = None
 playback_lock = threading.Lock()
 is_playing = False
 
 # スレッドプール
 executor = ThreadPoolExecutor(max_workers=1)
+
+
+# ===== オーディオバックエンド =====
+
+def get_audio_backend() -> str:
+    """使用するオーディオバックエンドを取得"""
+    return AUDIO_BACKEND
 
 
 # ===== ヘルパー関数 =====
@@ -121,53 +133,84 @@ def stop_current_playback():
     """現在の再生を停止"""
     global current_playback_process, is_playing
 
+    backend = get_audio_backend()
+
     with playback_lock:
-        if current_playback_process and current_playback_process.poll() is None:
-            try:
-                current_playback_process.terminate()
-                current_playback_process.wait(timeout=2)
-            except:
+        if backend == "paplay":
+            # paplayプロセスを停止
+            if current_playback_process and current_playback_process.poll() is None:
                 try:
-                    current_playback_process.kill()
+                    current_playback_process.terminate()
+                    current_playback_process.wait(timeout=2)
+                except:
+                    try:
+                        current_playback_process.kill()
+                    except:
+                        pass
+                current_playback_process = None
+        elif backend == "sounddevice":
+            # sounddeviceを停止
+            if is_playing:
+                try:
+                    import sounddevice as sd
+                    sd.stop()
                 except:
                     pass
-            current_playback_process = None
         is_playing = False
 
 
 def play_audio_realtime(audio_data: np.ndarray, sample_rate: int):
-    """paplayを使用してリアルタイム再生（ブロッキング）"""
+    """リアルタイム再生（バックエンドに応じて切り替え）"""
     global current_playback_process, is_playing
 
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-        tmp_path = tmp_file.name
+    backend = get_audio_backend()
 
-    try:
-        audio_int16 = np.int16(audio_data * 32767)
-        wavfile.write(tmp_path, sample_rate, audio_int16)
+    if backend == "paplay":
+        # paplayを使用（Linux/WSL）
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+            tmp_path = tmp_file.name
 
-        # プロセスを開始（バッファサイズを増やしてアンダーラン防止）
+        try:
+            audio_int16 = np.int16(audio_data * 32767)
+            wavfile.write(tmp_path, sample_rate, audio_int16)
+
+            with playback_lock:
+                current_playback_process = subprocess.Popen([
+                    'paplay',
+                    '--latency-msec=200',
+                    tmp_path
+                ])
+                is_playing = True
+
+            current_playback_process.wait()  # 再生完了を待つ
+
+            with playback_lock:
+                if current_playback_process:
+                    current_playback_process = None
+                is_playing = False
+        except:
+            with playback_lock:
+                is_playing = False
+            raise
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    elif backend == "sounddevice":
+        # sounddeviceを使用（Windows/macOS）
+        import sounddevice as sd
+
         with playback_lock:
-            current_playback_process = subprocess.Popen([
-                'paplay',
-                '--latency-msec=200',  # 200msのバッファ
-                tmp_path
-            ])
             is_playing = True
 
-        current_playback_process.wait()  # 再生完了を待つ
-
-        with playback_lock:
-            if current_playback_process:
-                current_playback_process = None
-            is_playing = False
-    except:
-        with playback_lock:
-            is_playing = False
-        raise
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        try:
+            sd.play(audio_data, sample_rate)
+            sd.wait()  # 再生完了を待つ
+        finally:
+            with playback_lock:
+                is_playing = False
+    else:
+        raise ValueError(f"Unknown audio backend: {backend}")
 
 
 # ===== ルート =====
@@ -578,5 +621,35 @@ async def export_program(program_id: str):
 
 
 if __name__ == "__main__":
+    import argparse
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    parser = argparse.ArgumentParser(description="音波洗浄システム")
+    parser.add_argument(
+        "--backend",
+        choices=["paplay", "sounddevice"],
+        default="paplay",
+        help="オーディオバックエンド (デフォルト: paplay)"
+    )
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="ホストアドレス (デフォルト: 0.0.0.0)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="ポート番号 (デフォルト: 8000)"
+    )
+
+    args = parser.parse_args()
+
+    # グローバル変数を更新
+    AUDIO_BACKEND = args.backend
+
+    print(f"🔊 Audio Backend: {AUDIO_BACKEND}")
+    print(f"🌐 Server: http://{args.host}:{args.port}")
+    print()
+
+    uvicorn.run(app, host=args.host, port=args.port)
