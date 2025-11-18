@@ -648,8 +648,8 @@ if __name__ == "__main__":
     # グローバル変数を更新
     AUDIO_BACKEND = args.backend
 
-    print(f"🔊 Audio Backend: {AUDIO_BACKEND}")
-    print(f"🌐 Server: http://{args.host}:{args.port}")
+    print(f"Audio Backend: {AUDIO_BACKEND}")
+    print(f"Server: http://{args.host}:{args.port}")
     print()
 
     uvicorn.run(app, host=args.host, port=args.port)

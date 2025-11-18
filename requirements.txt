@@ -6,3 +6,4 @@ sounddevice
 numpy
 scipy
 pydantic
+matplotlib
