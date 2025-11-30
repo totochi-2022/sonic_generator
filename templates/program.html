@@ -17,6 +17,14 @@
     <div class="container">
         <div class="mb-20">
             <a href="/" class="btn">← 一覧に戻る</a>
+
+            <!-- オーディオバックエンド選択 -->
+            <select id="audio-backend" class="backend-select" onchange="saveBackendPreference()">
+                <option value="webaudio">Browser (Web Audio)</option>
+                <option value="paplay">Server (paplay/Linux)</option>
+                <option value="sounddevice">Server (sounddevice)</option>
+            </select>
+
             <button class="btn btn-success" onclick="playProgram('{{ program.id }}')">
                 ▶️ 全体を再生
             </button>
@@ -225,6 +233,126 @@
     </div>
 
     <script>
+        // ===== Web Audio API 関連 =====
+        let audioContext = null;
+        let currentSource = null;
+        let currentGainNode = null;
+        let isWebAudioPlaying = false;
+
+        function getAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return audioContext;
+        }
+
+        function closeAudioContext() {
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+        }
+
+        function getSelectedBackend() {
+            return document.getElementById('audio-backend').value;
+        }
+
+        function saveBackendPreference() {
+            localStorage.setItem('audioBackend', getSelectedBackend());
+        }
+
+        function loadBackendPreference() {
+            const saved = localStorage.getItem('audioBackend');
+            if (saved) {
+                document.getElementById('audio-backend').value = saved;
+            }
+        }
+
+        // ページ読み込み時にバックエンド設定を復元
+        document.addEventListener('DOMContentLoaded', loadBackendPreference);
+
+        async function playWithWebAudio(audioData, sampleRate) {
+            // 既存の再生を停止
+            stopWebAudio();
+
+            const ctx = getAudioContext();
+
+            // AudioContextがsuspendedの場合は再開
+            if (ctx.state === 'suspended') {
+                await ctx.resume();
+            }
+
+            // Float32Arrayに変換
+            const floatData = new Float32Array(audioData);
+
+            // AudioBufferを作成
+            const audioBuffer = ctx.createBuffer(1, floatData.length, sampleRate);
+            audioBuffer.getChannelData(0).set(floatData);
+
+            // GainNodeを作成（ミュート用）
+            currentGainNode = ctx.createGain();
+            currentGainNode.connect(ctx.destination);
+
+            // AudioBufferSourceNodeを作成して再生
+            currentSource = ctx.createBufferSource();
+            currentSource.buffer = audioBuffer;
+            currentSource.connect(currentGainNode);
+
+            currentSource.onended = () => {
+                isWebAudioPlaying = false;
+                currentSource = null;
+                currentGainNode = null;
+                // 波形スクロールを停止
+                for (let idx in waveformAnimations) {
+                    stopWaveformScroll(idx);
+                }
+            };
+
+            isWebAudioPlaying = true;
+            currentSource.start();
+            console.log('Web Audio playback started');
+        }
+
+        function stopWebAudio() {
+            console.log('stopWebAudio called, currentSource:', currentSource);
+            if (currentSource) {
+                try {
+                    currentSource.stop(0);
+                    currentSource.disconnect();
+                } catch (e) {
+                    console.log('Stop error:', e);
+                }
+                currentSource = null;
+            }
+            if (currentGainNode) {
+                try {
+                    currentGainNode.disconnect();
+                } catch (e) {}
+                currentGainNode = null;
+            }
+            isWebAudioPlaying = false;
+            console.log('Web Audio stopped');
+        }
+
+        async function fetchAndPlayAudio(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                if (!data.waveform || !Array.isArray(data.waveform)) {
+                    throw new Error('Invalid audio data');
+                }
+
+                await playWithWebAudio(data.waveform, data.sample_rate);
+            } catch (error) {
+                console.error('Audio playback error:', error);
+                alert('再生エラー: ' + error.message);
+            }
+        }
+
         function showAddTrackForm(stageIdx) {
             document.getElementById('add-track-form-' + stageIdx).style.display = 'block';
             updateTrackForm(stageIdx);
@@ -347,13 +475,21 @@
             });
         }
 
-        function playProgram(programId) {
-            fetch(`/api/play/${programId}`, {
-                method: 'POST'
-            })
-            .catch(error => {
-                alert('再生エラー: ' + error);
-            });
+        async function playProgram(programId) {
+            const backend = getSelectedBackend();
+
+            if (backend === 'webaudio') {
+                // Web Audio APIで再生
+                await fetchAndPlayAudio(`/api/waveform/data/program/${programId}`);
+            } else {
+                // サーバー側で再生
+                fetch(`/api/play/${programId}?backend=${backend}`, {
+                    method: 'POST'
+                })
+                .catch(error => {
+                    alert('再生エラー: ' + error);
+                });
+            }
         }
 
         function exportProgram(programId, programName) {
@@ -361,6 +497,10 @@
         }
 
         function stopPlayback() {
+            // Web Audio停止
+            stopWebAudio();
+
+            // サーバー側も停止
             fetch('/api/stop', {
                 method: 'POST'
             })
@@ -375,30 +515,48 @@
             });
         }
 
-        function playStage(programId, stageIdx) {
-            fetch(`/api/play/stage/${programId}/${stageIdx}`, {
-                method: 'POST'
-            })
-            .then(() => {
-                // 該当ステージの波形スクロールを開始
+        async function playStage(programId, stageIdx) {
+            const backend = getSelectedBackend();
+
+            if (backend === 'webaudio') {
+                // Web Audio APIで再生
+                await fetchAndPlayAudio(`/api/waveform/data/stage/${programId}/${stageIdx}?full=true`);
                 startWaveformScroll(stageIdx);
-            })
-            .catch(error => {
-                alert('再生エラー: ' + error);
-            });
+            } else {
+                // サーバー側で再生
+                fetch(`/api/play/stage/${programId}/${stageIdx}?backend=${backend}`, {
+                    method: 'POST'
+                })
+                .then(() => {
+                    // 該当ステージの波形スクロールを開始
+                    startWaveformScroll(stageIdx);
+                })
+                .catch(error => {
+                    alert('再生エラー: ' + error);
+                });
+            }
         }
 
-        function playTrack(programId, stageIdx, trackIdx) {
-            fetch(`/api/play/track/${programId}/${stageIdx}/${trackIdx}`, {
-                method: 'POST'
-            })
-            .then(() => {
-                // 該当ステージの波形スクロールを開始
+        async function playTrack(programId, stageIdx, trackIdx) {
+            const backend = getSelectedBackend();
+
+            if (backend === 'webaudio') {
+                // Web Audio APIで再生
+                await fetchAndPlayAudio(`/api/waveform/data/track/${programId}/${stageIdx}/${trackIdx}`);
                 startWaveformScroll(stageIdx);
-            })
-            .catch(error => {
-                alert('再生エラー: ' + error);
-            });
+            } else {
+                // サーバー側で再生
+                fetch(`/api/play/track/${programId}/${stageIdx}/${trackIdx}?backend=${backend}`, {
+                    method: 'POST'
+                })
+                .then(() => {
+                    // 該当ステージの波形スクロールを開始
+                    startWaveformScroll(stageIdx);
+                })
+                .catch(error => {
+                    alert('再生エラー: ' + error);
+                });
+            }
         }
 
         function toggleTrack(programId, stageIdx, trackIdx, newEnabledState) {

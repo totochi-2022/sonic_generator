@@ -37,8 +37,7 @@
                         <div class="program-actions">
                             <a href="/program/{{ program.id }}" class="btn btn-small">✏️ 編集</a>
                             <button class="btn btn-small btn-success"
-                                    hx-post="/api/play/{{ program.id }}"
-                                    hx-indicator="#loading">
+                                    onclick="playProgram('{{ program.id }}')">
                                 ▶️ 再生
                             </button>
                             <button class="btn btn-small"
@@ -69,6 +68,27 @@
     </div>
 
     <script>
+        // ===== Web Audio API 関連 =====
+        let audioContext = null;
+        let currentSource = null;
+        let currentGainNode = null;
+
+        function stopWebAudio() {
+            if (currentSource) {
+                try {
+                    currentSource.stop(0);
+                    currentSource.disconnect();
+                } catch (e) {}
+                currentSource = null;
+            }
+            if (currentGainNode) {
+                try {
+                    currentGainNode.disconnect();
+                } catch (e) {}
+                currentGainNode = null;
+            }
+        }
+
         function createNewProgram() {
             const name = prompt('プログラム名を入力してください:', '新規プログラム');
             if (!name) return;
@@ -111,7 +131,20 @@
             window.location.href = '/api/export/' + programId;
         }
 
+        function playProgram(programId) {
+            fetch(`/api/play/${programId}`, {
+                method: 'POST'
+            })
+            .catch(error => {
+                alert('再生エラー: ' + error);
+            });
+        }
+
         function stopPlayback() {
+            // Web Audio停止
+            stopWebAudio();
+
+            // サーバー側も停止
             fetch('/api/stop', {
                 method: 'POST'
             })

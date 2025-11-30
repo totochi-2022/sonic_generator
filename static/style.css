@@ -252,3 +252,25 @@ header h1 {
 .empty-state p {
     margin-bottom: 20px;
 }
+
+/* バックエンド選択 */
+.backend-select {
+    padding: 10px 15px;
+    border: 2px solid #3498db;
+    border-radius: 5px;
+    background: white;
+    color: #2c3e50;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+.backend-select:focus {
+    outline: none;
+    border-color: #2980b9;
+}
+
+.backend-select option {
+    padding: 10px;
+}

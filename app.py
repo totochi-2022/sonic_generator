@@ -403,14 +403,20 @@ def _play_program_task(program_id: str):
 
 
 @app.post("/api/play/{program_id}")
-async def play_program(program_id: str):
+async def play_program(program_id: str, backend: str = None):
     """プログラムをリアルタイム再生"""
+    global AUDIO_BACKEND
+
     if program_id not in programs_db:
         raise HTTPException(status_code=404, detail="Program not found")
 
     # 再生中の場合は拒否
     if is_playing:
         raise HTTPException(status_code=409, detail="Already playing. Stop current playback first.")
+
+    # バックエンドを一時的に変更
+    if backend and backend in ["paplay", "sounddevice"]:
+        AUDIO_BACKEND = backend
 
     # バックグラウンドで再生
     executor.submit(_play_program_task, program_id)
@@ -445,8 +451,10 @@ def _play_stage_task(program_id: str, stage_idx: int):
 
 
 @app.post("/api/play/stage/{program_id}/{stage_idx}")
-async def play_stage(program_id: str, stage_idx: int):
+async def play_stage(program_id: str, stage_idx: int, backend: str = None):
     """ステージを再生"""
+    global AUDIO_BACKEND
+
     if program_id not in programs_db:
         raise HTTPException(status_code=404, detail="Program not found")
 
@@ -457,6 +465,10 @@ async def play_stage(program_id: str, stage_idx: int):
     # 再生中の場合は拒否
     if is_playing:
         raise HTTPException(status_code=409, detail="Already playing. Stop current playback first.")
+
+    # バックエンドを一時的に変更
+    if backend and backend in ["paplay", "sounddevice"]:
+        AUDIO_BACKEND = backend
 
     # バックグラウンドで再生
     executor.submit(_play_stage_task, program_id, stage_idx)
@@ -479,8 +491,10 @@ def _play_track_task(program_id: str, stage_idx: int, track_idx: int):
 
 
 @app.post("/api/play/track/{program_id}/{stage_idx}/{track_idx}")
-async def play_track(program_id: str, stage_idx: int, track_idx: int):
+async def play_track(program_id: str, stage_idx: int, track_idx: int, backend: str = None):
     """トラック単体を再生"""
+    global AUDIO_BACKEND
+
     if program_id not in programs_db:
         raise HTTPException(status_code=404, detail="Program not found")
 
@@ -496,6 +510,10 @@ async def play_track(program_id: str, stage_idx: int, track_idx: int):
     if is_playing:
         raise HTTPException(status_code=409, detail="Already playing. Stop current playback first.")
 
+    # バックエンドを一時的に変更
+    if backend and backend in ["paplay", "sounddevice"]:
+        AUDIO_BACKEND = backend
+
     # バックグラウンドで再生
     executor.submit(_play_track_task, program_id, stage_idx, track_idx)
 
@@ -505,8 +523,12 @@ async def play_track(program_id: str, stage_idx: int, track_idx: int):
 # ===== 波形表示 API =====
 
 @app.get("/api/waveform/data/stage/{program_id}/{stage_idx}")
-async def get_stage_waveform_data(program_id: str, stage_idx: int):
-    """ステージの波形データを取得（JSON形式）"""
+async def get_stage_waveform_data(program_id: str, stage_idx: int, full: bool = False):
+    """ステージの波形データを取得（JSON形式）
+
+    Args:
+        full: Trueの場合、全サンプルを返す（Web Audio再生用）
+    """
     if program_id not in programs_db:
         raise HTTPException(status_code=404, detail="Program not found")
 
@@ -520,16 +542,78 @@ async def get_stage_waveform_data(program_id: str, stage_idx: int):
     # ステージの音声を生成
     stage_audio = generate_audio_for_stage(stage, generator)
 
-    # ダウンサンプリング（表示用）
-    max_samples = 5000
-    if len(stage_audio) > max_samples:
-        step = len(stage_audio) // max_samples
-        audio_display = stage_audio[::step].tolist()
+    if full:
+        # 全サンプルを返す（Web Audio再生用）
+        audio_data = stage_audio.tolist()
     else:
-        audio_display = stage_audio.tolist()
+        # ダウンサンプリング（表示用）
+        max_samples = 5000
+        if len(stage_audio) > max_samples:
+            step = len(stage_audio) // max_samples
+            audio_data = stage_audio[::step].tolist()
+        else:
+            audio_data = stage_audio.tolist()
 
     return {
-        "waveform": audio_display,
+        "waveform": audio_data,
+        "duration": stage.duration,
+        "sample_rate": generator.sample_rate
+    }
+
+
+@app.get("/api/waveform/data/program/{program_id}")
+async def get_program_waveform_data(program_id: str):
+    """プログラム全体の波形データを取得（Web Audio再生用）"""
+    if program_id not in programs_db:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    program = programs_db[program_id]
+    generator = AudioGenerator(sample_rate=program.sample_rate)
+
+    # 全ステージの音声を生成して連結
+    all_audio = []
+    for stage in program.stages:
+        stage_audio = generate_audio_for_stage(stage, generator)
+        all_audio.append(stage_audio)
+
+    # 連結
+    if all_audio:
+        combined_audio = np.concatenate(all_audio)
+    else:
+        combined_audio = np.zeros(generator.sample_rate, dtype=np.float32)
+
+    # 総再生時間を計算
+    total_duration = sum(stage.duration for stage in program.stages)
+
+    return {
+        "waveform": combined_audio.tolist(),
+        "duration": total_duration,
+        "sample_rate": generator.sample_rate
+    }
+
+
+@app.get("/api/waveform/data/track/{program_id}/{stage_idx}/{track_idx}")
+async def get_track_waveform_data(program_id: str, stage_idx: int, track_idx: int):
+    """トラックの波形データを取得（Web Audio再生用）"""
+    if program_id not in programs_db:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    program = programs_db[program_id]
+    if stage_idx < 0 or stage_idx >= len(program.stages):
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    stage = program.stages[stage_idx]
+    if track_idx < 0 or track_idx >= len(stage.tracks):
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    generator = AudioGenerator(sample_rate=program.sample_rate)
+    track = stage.tracks[track_idx]
+
+    # トラックの音声を生成
+    track_audio = generate_audio_for_track(track, stage.duration, generator)
+
+    return {
+        "waveform": track_audio.tolist(),
         "duration": stage.duration,
         "sample_rate": generator.sample_rate
     }
