@@ -36,23 +36,27 @@
             </button>
         </div>
 
+        <!-- プログラム設定 -->
+        <div class="program-settings">
+            <span class="editable" onclick="editSampleRate('{{ program.id }}', this)" title="クリックして編集">
+                サンプリングレート: {{ program.sample_rate }} Hz
+            </span>
+        </div>
+
         <!-- ステージセクション -->
         <div class="stages-container" id="stages-container">
-            <h2>ステージ ({{ program.stages|length }}/5)</h2>
+            <h2>ステージ ({{ program.stages|length }})</h2>
 
             {% for stage in program.stages %}
             {% set stage_idx = loop.index0 %}
             <div class="stage">
                 <div class="stage-header">
                     <div>
-                        <h3>{{ stage.name }}</h3>
-                        <p style="color: #7f8c8d; font-size: 14px; margin-top: 5px;">時間: {{ stage.duration }}秒</p>
+                        <h3>ステージ {{ loop.index }}</h3>
+                        <p class="editable" onclick="editStageComment('{{ program.id }}', {{ stage_idx }}, this)" title="クリックして編集" style="color: #7f8c8d; font-size: 14px; margin-top: 5px;">{{ stage.comment if stage.comment else 'コメントなし' }}</p>
+                        <p class="editable" onclick="editStageDuration('{{ program.id }}', {{ stage_idx }}, this)" title="クリックして編集" style="color: #7f8c8d; font-size: 14px; margin-top: 5px;">時間: {{ stage.duration }}秒</p>
                     </div>
                     <div>
-                        <button class="btn btn-small"
-                                onclick="showEditStageForm('{{ program.id }}', {{ stage_idx }})">
-                            ✏️ 編集
-                        </button>
                         <button class="btn btn-small"
                                 onclick="showWaveform('{{ program.id }}', {{ stage_idx }})">
                             📊 波形
@@ -63,7 +67,7 @@
                         </button>
                         <button class="btn btn-small btn-danger"
                                 onclick="deleteStage('{{ program.id }}', {{ stage_idx }})">
-                            🗑️ 削除
+                            🗑️
                         </button>
                     </div>
                 </div>
@@ -75,7 +79,7 @@
 
                 <!-- トラックリスト -->
                 <div class="tracks-container">
-                    <h4>トラック ({{ stage.tracks|length }}/5)</h4>
+                    <h4>トラック ({{ stage.tracks|length }})</h4>
 
                     {% for track in stage.tracks %}
                     <div class="track" style="{% if not track.enabled %}opacity: 0.5;{% endif %}">
@@ -114,7 +118,7 @@
                     </div>
                     {% endfor %}
 
-                    {% if stage.tracks|length < 5 %}
+                    {% if true %}
                     <div class="mt-20">
                         <button class="btn btn-small btn-success"
                                 onclick="showAddTrackForm({{ stage_idx }})">
@@ -222,7 +226,7 @@
             </div>
             {% endfor %}
 
-            {% if program.stages|length < 5 %}
+            {% if true %}
             <div class="mt-20">
                 <button class="btn btn-success" onclick="addStage('{{ program.id }}')">
                     ➕ ステージ追加
@@ -435,11 +439,10 @@
         }
 
         function addStage(programId) {
-            const name = prompt('ステージ名を入力してください:', 'ステージ ' + ({{ program.stages|length }} + 1));
-            if (!name) return;
-
             const duration = prompt('ステージの再生時間（秒）を入力してください:', '30');
             if (!duration) return;
+
+            const comment = prompt('コメント（省略可）:', '');
 
             fetch(`/api/programs/${programId}/stages`, {
                 method: 'POST',
@@ -447,7 +450,7 @@
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    name: name,
+                    comment: comment || '',
                     duration: parseFloat(duration),
                     tracks: []
                 })
@@ -866,37 +869,175 @@
             }
         }
 
-        function showEditStageForm(programId, stageIdx) {
-            // ステージデータを取得
+        function editStageComment(programId, stageIdx, element) {
+            const currentComment = element.textContent === 'コメントなし' ? '' : element.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentComment;
+            input.placeholder = 'コメントを入力...';
+            input.className = 'inline-edit';
+            input.style.cssText = 'font-size: inherit; padding: 2px 5px; border: 2px solid #3498db; border-radius: 3px; width: 250px;';
+
+            element.textContent = '';
+            element.appendChild(input);
+            input.focus();
+            input.select();
+
+            function saveChange() {
+                const newComment = input.value.trim();
+                if (newComment !== currentComment) {
+                    updateStageField(programId, stageIdx, 'comment', newComment);
+                } else {
+                    element.textContent = currentComment || 'コメントなし';
+                }
+            }
+
+            input.addEventListener('blur', saveChange);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    input.blur();
+                } else if (e.key === 'Escape') {
+                    element.textContent = currentComment || 'コメントなし';
+                }
+            });
+        }
+
+        function editStageDuration(programId, stageIdx, element) {
+            const currentText = element.textContent;
+            const currentDuration = parseFloat(currentText.match(/[\d.]+/)[0]);
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.value = currentDuration;
+            input.step = '0.1';
+            input.min = '0.1';
+            input.className = 'inline-edit';
+            input.style.cssText = 'font-size: inherit; padding: 2px 5px; border: 2px solid #3498db; border-radius: 3px; width: 80px;';
+
+            element.textContent = '時間: ';
+            element.appendChild(input);
+            const suffix = document.createTextNode('秒');
+            element.appendChild(suffix);
+            input.focus();
+            input.select();
+
+            function saveChange() {
+                const newDuration = parseFloat(input.value);
+                if (newDuration > 0 && newDuration !== currentDuration) {
+                    updateStageField(programId, stageIdx, 'duration', newDuration);
+                } else {
+                    element.textContent = currentText;
+                }
+            }
+
+            input.addEventListener('blur', saveChange);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    input.blur();
+                } else if (e.key === 'Escape') {
+                    element.textContent = currentText;
+                }
+            });
+        }
+
+        function updateStageField(programId, stageIdx, field, value) {
             fetch(`/api/programs/${programId}`)
             .then(response => response.json())
             .then(program => {
-                const stage = program.stages[stageIdx];
+                program.stages[stageIdx][field] = value;
 
-                const newName = prompt('ステージ名を入力してください:', stage.name);
-                if (newName === null) return;
-
-                const newDuration = prompt('再生時間（秒）を入力してください:', stage.duration);
-                if (newDuration === null) return;
-
-                // ステージデータを更新
-                stage.name = newName;
-                stage.duration = parseFloat(newDuration);
-
-                // 更新リクエスト
-                fetch(`/api/programs/${programId}`, {
+                return fetch(`/api/programs/${programId}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(program)
-                })
-                .then(() => {
-                    window.location.reload();
-                })
-                .catch(error => {
-                    alert('エラーが発生しました: ' + error);
                 });
+            })
+            .then(() => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
+        }
+
+        function editSampleRate(programId, element) {
+            // 既に編集中なら何もしない
+            if (element.querySelector('select')) return;
+
+            const currentText = element.textContent.trim();
+            const currentRate = parseInt(currentText.match(/\d+/)[0]);
+
+            // セレクトボックスを作成
+            const select = document.createElement('select');
+            select.style.cssText = 'padding: 8px 12px; border: 2px solid #3498db; border-radius: 5px; background: white; color: #2c3e50; font-size: 14px; cursor: pointer;';
+
+            const options = [
+                { value: 22050, label: '22050 Hz (低品質)' },
+                { value: 44100, label: '44100 Hz (CD品質)' },
+                { value: 48000, label: '48000 Hz (動画品質)' },
+                { value: 96000, label: '96000 Hz (ハイレゾ)' }
+            ];
+
+            options.forEach(opt => {
+                const option = document.createElement('option');
+                option.value = opt.value;
+                option.textContent = opt.label;
+                if (opt.value === currentRate) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+
+            // 元のテキストをクリアしてセレクトを挿入
+            element.innerHTML = '';
+            element.appendChild(select);
+            select.focus();
+
+            let saved = false;
+
+            function saveChange() {
+                if (saved) return;
+                saved = true;
+                const newRate = parseInt(select.value);
+                if (newRate !== currentRate) {
+                    updateProgramField(programId, 'sample_rate', newRate);
+                } else {
+                    element.textContent = currentText;
+                }
+            }
+
+            select.addEventListener('blur', saveChange);
+            select.addEventListener('change', () => {
+                saved = false;
+                saveChange();
+            });
+            select.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    saved = true;
+                    element.textContent = currentText;
+                }
+            });
+        }
+
+        function updateProgramField(programId, field, value) {
+            fetch(`/api/programs/${programId}`)
+            .then(response => response.json())
+            .then(program => {
+                program[field] = value;
+
+                return fetch(`/api/programs/${programId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(program)
+                });
+            })
+            .then(() => {
+                window.location.reload();
             })
             .catch(error => {
                 alert('エラーが発生しました: ' + error);

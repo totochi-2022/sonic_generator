@@ -35,9 +35,9 @@ class Track(BaseModel):
 
 class Stage(BaseModel):
     """ステージ定義"""
-    name: str
+    comment: str = Field(default="", description="コメント")
     duration: float = Field(default=30.0, gt=0, description="ステージの再生時間(秒)")
-    tracks: List[Track] = Field(default_factory=list, max_length=5)
+    tracks: List[Track] = Field(default_factory=list)
 
     class Config:
         json_schema_extra = {
@@ -53,7 +53,7 @@ class Program(BaseModel):
     """プログラム定義"""
     id: Optional[str] = None
     name: str
-    stages: List[Stage] = Field(default_factory=list, max_length=5)
+    stages: List[Stage] = Field(default_factory=list)
     sample_rate: int = Field(default=44100)
 
     class Config:

@@ -297,9 +297,6 @@ async def add_stage(program_id: str, stage: Stage) -> Program:
         raise HTTPException(status_code=404, detail="Program not found")
 
     program = programs_db[program_id]
-    if len(program.stages) >= 5:
-        raise HTTPException(status_code=400, detail="Maximum 5 stages allowed")
-
     program.stages.append(stage)
     save_program_to_disk(program)
     return program
@@ -333,9 +330,6 @@ async def add_track(program_id: str, stage_idx: int, track: Track) -> Program:
         raise HTTPException(status_code=404, detail="Stage not found")
 
     stage = program.stages[stage_idx]
-    if len(stage.tracks) >= 5:
-        raise HTTPException(status_code=400, detail="Maximum 5 tracks allowed")
-
     stage.tracks.append(track)
     save_program_to_disk(program)
     return program
