@@ -671,7 +671,7 @@ async def get_stage_waveform(program_id: str, stage_idx: int):
 
 # ===== エクスポート API =====
 
-@app.post("/api/export/{program_id}")
+@app.get("/api/export/{program_id}")
 async def export_program(program_id: str):
     """プログラムをWAVファイルにエクスポート"""
     if program_id not in programs_db:
