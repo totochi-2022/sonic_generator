@@ -94,6 +94,29 @@ header h1 {
     min-width: 20px;
 }
 
+.playback-info {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.playback-info span {
+    padding: 8px 12px;
+    background: #ecf0f1;
+    border-radius: 5px;
+    font-size: 14px;
+    color: #2c3e50;
+}
+
+#playback-status.playing {
+    background: #27ae60;
+    color: white;
+}
+
+.mb-10 {
+    margin-bottom: 10px;
+}
+
 /* プログラムリスト */
 .program-list {
     display: flex;

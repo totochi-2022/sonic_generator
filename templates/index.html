@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>音波洗浄システム</title>
     <link rel="stylesheet" href="/static/style.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
 <body>
     <header>
@@ -15,14 +14,8 @@
     </header>
 
     <div class="container">
-        <!-- 操作ボタン -->
-        <div class="toolbar mb-20">
-            <button class="btn btn-success" onclick="playSelected()">
-                再生
-            </button>
-            <button class="btn btn-danger" onclick="stopPlayback()">
-                停止
-            </button>
+        <!-- 操作ボタン 1段目 -->
+        <div class="toolbar mb-10">
             <button class="btn" onclick="editSelected()">
                 編集
             </button>
@@ -36,6 +29,33 @@
             <button class="btn btn-success" onclick="createNewProgram()">
                 + 新規作成
             </button>
+        </div>
+
+        <!-- 再生コントロール 2段目 -->
+        <div class="toolbar mb-20">
+            <select id="audio-backend" class="backend-select">
+                <option value="webaudio">Web Audio</option>
+                <option value="paplay">paplay (Linux)</option>
+                <option value="sounddevice">sounddevice</option>
+            </select>
+            <button class="btn" onclick="prevStage()">
+                |&lt; 前
+            </button>
+            <button class="btn btn-success" onclick="playSelected()">
+                再生
+            </button>
+            <button class="btn btn-danger" onclick="stopPlayback()">
+                停止
+            </button>
+            <button class="btn" onclick="nextStage()">
+                次 &gt;|
+            </button>
+            <span class="toolbar-spacer"></span>
+            <span class="playback-info">
+                <span id="playback-status">停止中</span>
+                <span id="playback-stage">ステージ: -</span>
+                <span id="playback-time">0:00 / 0:00</span>
+            </span>
         </div>
 
         <div id="programs-container">
@@ -64,10 +84,6 @@
                     </button>
                 </div>
             {% endif %}
-        </div>
-
-        <div id="loading" class="htmx-indicator" style="text-align: center; padding: 20px;">
-            <p>処理中...</p>
         </div>
     </div>
 
@@ -128,14 +144,53 @@
 
         function playSelected() {
             const program = getSelectedProgram();
-            if (program) {
-                fetch(`/api/play/${program.id}`, {
+            if (!program) return;
+
+            const backend = document.getElementById('audio-backend').value;
+
+            if (backend === 'webaudio') {
+                // Web Audio APIで再生
+                playWithWebAudio(program.id);
+            } else {
+                // サーバーサイドで再生
+                fetch(`/api/play/${program.id}?backend=${backend}`, {
                     method: 'POST'
                 })
                 .catch(error => {
                     alert('再生エラー: ' + error);
                 });
             }
+        }
+
+        function playWithWebAudio(programId) {
+            // 波形データを取得してWeb Audioで再生
+            fetch(`/api/waveform/data/program/${programId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (!audioContext) {
+                        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+
+                    stopWebAudio();
+
+                    const audioBuffer = audioContext.createBuffer(1, data.waveform.length, data.sample_rate);
+                    const channelData = audioBuffer.getChannelData(0);
+                    for (let i = 0; i < data.waveform.length; i++) {
+                        channelData[i] = data.waveform[i];
+                    }
+
+                    currentSource = audioContext.createBufferSource();
+                    currentGainNode = audioContext.createGain();
+
+                    currentSource.buffer = audioBuffer;
+                    currentSource.connect(currentGainNode);
+                    currentGainNode.connect(audioContext.destination);
+
+                    currentSource.start(0);
+                })
+                .catch(error => {
+                    alert('Web Audio再生エラー: ' + error);
+                });
         }
 
         function exportSelected() {
@@ -201,6 +256,7 @@
 
         function stopPlayback() {
             stopWebAudio();
+            updateStatus('停止中');
             fetch('/api/stop', {
                 method: 'POST'
             })
@@ -208,6 +264,62 @@
                 alert('停止エラー: ' + error);
             });
         }
+
+        function prevStage() {
+            fetch('/api/prev', {
+                method: 'POST'
+            })
+            .catch(error => {
+                alert('ステージ移動エラー: ' + error);
+            });
+        }
+
+        function nextStage() {
+            fetch('/api/next', {
+                method: 'POST'
+            })
+            .catch(error => {
+                alert('ステージ移動エラー: ' + error);
+            });
+        }
+
+        function updateStatus(text) {
+            const status = document.getElementById('playback-status');
+            if (status) status.textContent = text;
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function pollStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusEl = document.getElementById('playback-status');
+                    const stageEl = document.getElementById('playback-stage');
+                    const timeEl = document.getElementById('playback-time');
+
+                    statusEl.classList.remove('playing');
+
+                    if (data.is_playing) {
+                        statusEl.textContent = '再生中';
+                        statusEl.classList.add('playing');
+                    } else {
+                        statusEl.textContent = '停止中';
+                    }
+
+                    stageEl.textContent = `ステージ: ${data.current_stage + 1}`;
+                    timeEl.textContent = `${formatTime(data.elapsed_time)} / ${formatTime(data.total_time)}`;
+                })
+                .catch(() => {});
+        }
+
+        // 1秒ごとにステータスを更新
+        setInterval(pollStatus, 1000);
+        pollStatus();
     </script>
 </body>
 </html>

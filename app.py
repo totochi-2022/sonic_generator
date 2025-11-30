@@ -45,6 +45,8 @@ playback_status = PlaybackStatus()
 current_playback_process = None
 playback_lock = threading.Lock()
 is_playing = False
+current_program_id = None
+skip_to_stage = None
 
 # スレッドプール
 executor = ThreadPoolExecutor(max_workers=1)
@@ -126,7 +128,7 @@ def generate_audio_for_stage(stage: Stage, generator: AudioGenerator) -> np.ndar
 
 def stop_current_playback():
     """現在の再生を停止"""
-    global current_playback_process, is_playing
+    global current_playback_process, is_playing, playback_status, current_program_id
 
     backend = get_audio_backend()
 
@@ -152,6 +154,34 @@ def stop_current_playback():
                 except:
                     pass
         is_playing = False
+        current_program_id = None
+        playback_status.is_playing = False
+
+
+def stop_current_playback_audio():
+    """現在再生中の音声のみ停止（再生ループは継続）"""
+    global current_playback_process
+
+    backend = get_audio_backend()
+
+    with playback_lock:
+        if backend == "paplay":
+            if current_playback_process and current_playback_process.poll() is None:
+                try:
+                    current_playback_process.terminate()
+                    current_playback_process.wait(timeout=1)
+                except:
+                    try:
+                        current_playback_process.kill()
+                    except:
+                        pass
+                current_playback_process = None
+        elif backend == "sounddevice":
+            try:
+                import sounddevice as sd
+                sd.stop()
+            except:
+                pass
 
 
 def play_audio_realtime(audio_data: np.ndarray, sample_rate: int):
@@ -380,24 +410,80 @@ async def update_track(program_id: str, stage_idx: int, track_idx: int, track: T
 # ===== 再生 API =====
 
 def _play_program_task(program_id: str):
-    """プログラム再生タスク（バックグラウンド実行用）"""
+    """プログラム再生タスク（ステージごとに再生、スキップ対応）"""
+    global playback_status, is_playing, current_program_id, skip_to_stage
+    import time as time_module
+
     program = programs_db[program_id]
     generator = AudioGenerator(sample_rate=program.sample_rate)
+    current_program_id = program_id
 
-    # 全ステージの音声を生成して連結（切れ目なく再生）
-    all_audio = []
+    # 総時間を計算
+    total_time = sum(stage.duration for stage in program.stages)
+    playback_status.total_time = total_time
+    playback_status.is_playing = True
+    is_playing = True
+
+    # 事前に全ステージの音声を生成
+    stage_audios = []
     for stage in program.stages:
         stage_audio = generate_audio_for_stage(stage, generator)
-        all_audio.append(stage_audio)
+        stage_audios.append(stage_audio)
 
-    # 連結
-    if all_audio:
-        combined_audio = np.concatenate(all_audio)
-    else:
-        combined_audio = np.zeros(generator.sample_rate, dtype=np.float32)
+    stage_idx = 0
+    elapsed_before_current = 0.0
 
-    # 一度に再生
-    play_audio_realtime(combined_audio, generator.sample_rate)
+    while stage_idx < len(program.stages) and is_playing:
+        # スキップ要求チェック
+        if skip_to_stage is not None:
+            stage_idx = skip_to_stage
+            skip_to_stage = None
+            elapsed_before_current = sum(program.stages[i].duration for i in range(stage_idx))
+            stop_current_playback_audio()
+            continue
+
+        if not is_playing:
+            break
+
+        stage = program.stages[stage_idx]
+        playback_status.current_stage = stage_idx
+
+        # ステージの音声を再生
+        stage_audio = stage_audios[stage_idx]
+
+        # 再生時間追跡用スレッド
+        stage_start_time = time_module.time()
+        stage_duration = stage.duration
+        current_elapsed_before = elapsed_before_current
+
+        def update_stage_elapsed():
+            while is_playing:
+                if skip_to_stage is not None:
+                    break
+                elapsed_in_stage = time_module.time() - stage_start_time
+                if elapsed_in_stage >= stage_duration:
+                    break
+                playback_status.elapsed_time = current_elapsed_before + min(elapsed_in_stage, stage_duration)
+                time_module.sleep(0.1)
+
+        tracker = threading.Thread(target=update_stage_elapsed, daemon=True)
+        tracker.start()
+
+        # ステージ再生
+        play_audio_realtime(stage_audio, generator.sample_rate)
+
+        # スキップされた場合はcontinue
+        if skip_to_stage is not None:
+            continue
+
+        # 次のステージへ
+        elapsed_before_current += stage.duration
+        stage_idx += 1
+
+    # 再生完了
+    playback_status.is_playing = False
+    is_playing = False
+    current_program_id = None
 
 
 @app.post("/api/play/{program_id}")
@@ -425,6 +511,7 @@ async def play_program(program_id: str, backend: str = None):
 @app.get("/api/status")
 async def get_status() -> PlaybackStatus:
     """再生ステータス取得"""
+    playback_status.is_playing = is_playing
     return playback_status
 
 
@@ -433,6 +520,44 @@ async def stop_playback():
     """再生停止"""
     stop_current_playback()
     return {"message": "Playback stopped"}
+
+
+@app.post("/api/prev")
+async def prev_stage():
+    """前のステージへ移動"""
+    global skip_to_stage
+
+    if not is_playing or current_program_id is None:
+        return {"message": "Not playing", "current_stage": 0}
+
+    program = programs_db.get(current_program_id)
+    if not program:
+        return {"message": "Program not found", "current_stage": 0}
+
+    new_stage = max(0, playback_status.current_stage - 1)
+    skip_to_stage = new_stage
+    stop_current_playback_audio()
+
+    return {"message": "Skipping to previous stage", "current_stage": new_stage}
+
+
+@app.post("/api/next")
+async def next_stage():
+    """次のステージへ移動"""
+    global skip_to_stage
+
+    if not is_playing or current_program_id is None:
+        return {"message": "Not playing", "current_stage": 0}
+
+    program = programs_db.get(current_program_id)
+    if not program:
+        return {"message": "Program not found", "current_stage": 0}
+
+    new_stage = min(len(program.stages) - 1, playback_status.current_stage + 1)
+    skip_to_stage = new_stage
+    stop_current_playback_audio()
+
+    return {"message": "Skipping to next stage", "current_stage": new_stage}
 
 
 def _play_stage_task(program_id: str, stage_idx: int):
