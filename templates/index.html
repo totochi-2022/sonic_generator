@@ -15,12 +15,26 @@
     </header>
 
     <div class="container">
-        <div class="text-center mb-20">
-            <button class="btn btn-success" onclick="createNewProgram()">
-                ➕ 新規プログラム作成
+        <!-- 操作ボタン -->
+        <div class="toolbar mb-20">
+            <button class="btn btn-success" onclick="playSelected()">
+                再生
             </button>
             <button class="btn btn-danger" onclick="stopPlayback()">
-                ⏹️ 再生停止
+                停止
+            </button>
+            <button class="btn" onclick="editSelected()">
+                編集
+            </button>
+            <button class="btn" onclick="exportSelected()">
+                WAVE出力
+            </button>
+            <button class="btn btn-danger" onclick="deleteSelected()">
+                削除
+            </button>
+            <span class="toolbar-spacer"></span>
+            <button class="btn btn-success" onclick="createNewProgram()">
+                + 新規作成
             </button>
         </div>
 
@@ -28,26 +42,16 @@
             {% if programs %}
                 <div class="program-list">
                     {% for program in programs %}
-                    <div class="program-card">
-                        <h3>{{ program.name }}</h3>
-                        <p>
-                            ステージ数: {{ program.stages|length }}<br>
-                            サンプリングレート: {{ program.sample_rate }} Hz
-                        </p>
-                        <div class="program-actions">
-                            <a href="/program/{{ program.id }}" class="btn btn-small">✏️ 編集</a>
-                            <button class="btn btn-small btn-success"
-                                    onclick="playProgram('{{ program.id }}')">
-                                ▶️ 再生
-                            </button>
-                            <button class="btn btn-small"
-                                    onclick="exportProgram('{{ program.id }}', '{{ program.name }}')">
-                                💾 エクスポート
-                            </button>
-                            <button class="btn btn-small btn-danger"
-                                    onclick="deleteProgram('{{ program.id }}')">
-                                🗑️ 削除
-                            </button>
+                    <div class="program-card" onclick="selectProgram('{{ program.id }}', '{{ program.name }}')" data-program-id="{{ program.id }}">
+                        <div class="program-select">
+                            <input type="radio" name="selected-program" id="program-{{ program.id }}" value="{{ program.id }}" data-name="{{ program.name }}">
+                        </div>
+                        <div class="program-info">
+                            <h3>{{ program.name }}</h3>
+                            <p>
+                                ステージ数: {{ program.stages|length }} /
+                                サンプリングレート: {{ program.sample_rate }} Hz
+                            </p>
                         </div>
                     </div>
                     {% endfor %}
@@ -56,7 +60,7 @@
                 <div class="empty-state">
                     <p>プログラムがまだありません</p>
                     <button class="btn btn-success" onclick="createNewProgram()">
-                        ➕ 新規プログラム作成
+                        + 新規プログラム作成
                     </button>
                 </div>
             {% endif %}
@@ -89,11 +93,80 @@
             }
         }
 
+        // ===== 選択関連 =====
+        function selectProgram(programId, programName) {
+            // ラジオボタンを選択
+            const radio = document.getElementById('program-' + programId);
+            if (radio) radio.checked = true;
+
+            // カードのハイライト
+            document.querySelectorAll('.program-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            const card = document.querySelector(`[data-program-id="${programId}"]`);
+            if (card) card.classList.add('selected');
+        }
+
+        function getSelectedProgram() {
+            const selected = document.querySelector('input[name="selected-program"]:checked');
+            if (!selected) {
+                alert('プログラムを選択してください');
+                return null;
+            }
+            return {
+                id: selected.value,
+                name: selected.dataset.name
+            };
+        }
+
+        function editSelected() {
+            const program = getSelectedProgram();
+            if (program) {
+                window.location.href = '/program/' + program.id;
+            }
+        }
+
+        function playSelected() {
+            const program = getSelectedProgram();
+            if (program) {
+                fetch(`/api/play/${program.id}`, {
+                    method: 'POST'
+                })
+                .catch(error => {
+                    alert('再生エラー: ' + error);
+                });
+            }
+        }
+
+        function exportSelected() {
+            const program = getSelectedProgram();
+            if (program) {
+                const filename = prompt('ファイル名を入力してください:', program.name);
+                if (filename === null) return;
+                window.location.href = '/api/export/' + program.id + '?filename=' + encodeURIComponent(filename);
+            }
+        }
+
+        function deleteSelected() {
+            const program = getSelectedProgram();
+            if (!program) return;
+            if (!confirm(`"${program.name}" を削除してもよろしいですか？`)) return;
+
+            fetch('/api/programs/' + program.id, {
+                method: 'DELETE'
+            })
+            .then(() => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('削除に失敗しました: ' + error);
+            });
+        }
+
         function createNewProgram() {
             const name = prompt('プログラム名を入力してください:', '新規プログラム');
             if (!name) return;
 
-            const sampleRateOptions = ['44100 (CD品質)', '48000 (動画品質)', '22050 (低品質)', '96000 (ハイレゾ)'];
             const sampleRateChoice = prompt(
                 'サンプリングレートを選択してください:\n' +
                 '1: 44100 Hz (CD品質・標準)\n' +
@@ -126,40 +199,8 @@
             });
         }
 
-        function deleteProgram(programId) {
-            if (!confirm('このプログラムを削除してもよろしいですか？')) return;
-
-            fetch('/api/programs/' + programId, {
-                method: 'DELETE'
-            })
-            .then(() => {
-                window.location.reload();
-            })
-            .catch(error => {
-                alert('削除に失敗しました: ' + error);
-            });
-        }
-
-        function exportProgram(programId, programName) {
-            const filename = prompt('ファイル名を入力してください:', programName);
-            if (filename === null) return;
-            window.location.href = '/api/export/' + programId + '?filename=' + encodeURIComponent(filename);
-        }
-
-        function playProgram(programId) {
-            fetch(`/api/play/${programId}`, {
-                method: 'POST'
-            })
-            .catch(error => {
-                alert('再生エラー: ' + error);
-            });
-        }
-
         function stopPlayback() {
-            // Web Audio停止
             stopWebAudio();
-
-            // サーバー側も停止
             fetch('/api/stop', {
                 method: 'POST'
             })
