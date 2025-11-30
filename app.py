@@ -263,12 +263,21 @@ async def get_program(program_id: str) -> Program:
 
 
 @app.put("/api/programs/{program_id}")
-async def update_program(program_id: str, program: Program) -> Program:
-    """プログラム更新"""
+async def update_program(program_id: str, updates: dict) -> Program:
+    """プログラム部分更新"""
     if program_id not in programs_db:
         raise HTTPException(status_code=404, detail="Program not found")
-    program.id = program_id
-    programs_db[program_id] = program
+
+    program = programs_db[program_id]
+
+    # 部分更新: 渡されたフィールドのみ更新
+    if "name" in updates:
+        program.name = updates["name"]
+    if "sample_rate" in updates:
+        program.sample_rate = updates["sample_rate"]
+    if "stages" in updates:
+        program.stages = [Stage(**s) if isinstance(s, dict) else s for s in updates["stages"]]
+
     save_program_to_disk(program)
     return program
 
@@ -611,7 +620,7 @@ async def get_track_waveform_data(program_id: str, stage_idx: int, track_idx: in
 # ===== エクスポート API =====
 
 @app.get("/api/export/{program_id}")
-async def export_program(program_id: str):
+async def export_program(program_id: str, filename: str = None):
     """プログラムをWAVファイルにエクスポート"""
     if program_id not in programs_db:
         raise HTTPException(status_code=404, detail="Program not found")
@@ -631,15 +640,18 @@ async def export_program(program_id: str):
     else:
         combined_audio = np.zeros(generator.sample_rate, dtype=np.float32)
 
+    # ファイル名を決定
+    export_name = filename if filename else program.name
+
     # WAVファイルとして保存
-    output_file = EXPORTS_DIR / f"{program.name}_{program.id}.wav"
+    output_file = EXPORTS_DIR / f"{export_name}_{program.id}.wav"
     audio_int16 = np.int16(combined_audio * 32767)
     wavfile.write(str(output_file), generator.sample_rate, audio_int16)
 
     return FileResponse(
         path=str(output_file),
         media_type="audio/wav",
-        filename=f"{program.name}.wav"
+        filename=f"{export_name}.wav"
     )
 
 

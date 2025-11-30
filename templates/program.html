@@ -10,7 +10,7 @@
 <body>
     <header>
         <div class="container">
-            <h1>🔊 {{ program.name }}</h1>
+            <h1 class="editable" onclick="editProgramName('{{ program.id }}', this)" title="クリックして編集" style="cursor: pointer;">🔊 {{ program.name }}</h1>
         </div>
     </header>
 
@@ -483,7 +483,9 @@
         }
 
         function exportProgram(programId, programName) {
-            window.location.href = '/api/export/' + programId;
+            const filename = prompt('ファイル名を入力してください:', programName);
+            if (filename === null) return;
+            window.location.href = '/api/export/' + programId + '?filename=' + encodeURIComponent(filename);
         }
 
         function stopPlayback() {
@@ -804,6 +806,73 @@
             .catch(error => {
                 alert('エラーが発生しました: ' + error);
             });
+        }
+
+        function editProgramName(programId, element) {
+            // 既に編集中なら何もしない
+            if (element.querySelector('input')) return;
+
+            const currentText = element.textContent.trim();
+            // 絵文字を除いた名前部分を取得
+            const currentName = currentText.replace(/^🔊\s*/, '');
+
+            // 入力フィールドを作成
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentName;
+            input.style.cssText = 'font-size: 24px; padding: 5px 10px; border: 2px solid #3498db; border-radius: 5px; background: white; color: #2c3e50; width: 300px;';
+
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = '保存';
+            saveBtn.className = 'btn btn-small btn-success';
+            saveBtn.style.marginLeft = '10px';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'キャンセル';
+            cancelBtn.className = 'btn btn-small';
+            cancelBtn.style.marginLeft = '5px';
+
+            element.innerHTML = '🔊 ';
+            element.appendChild(input);
+            element.appendChild(saveBtn);
+            element.appendChild(cancelBtn);
+            input.focus();
+            input.select();
+
+            const restore = () => {
+                element.innerHTML = '🔊 ' + currentName;
+            };
+
+            const save = () => {
+                const newName = input.value.trim();
+                if (!newName || newName === currentName) {
+                    restore();
+                    return;
+                }
+
+                fetch(`/api/programs/${programId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    element.innerHTML = '🔊 ' + newName;
+                    // ページタイトルも更新
+                    document.title = newName + ' - 音波洗浄システム';
+                })
+                .catch(error => {
+                    alert('更新に失敗しました: ' + error);
+                    restore();
+                });
+            };
+
+            saveBtn.onclick = (e) => { e.stopPropagation(); save(); };
+            cancelBtn.onclick = (e) => { e.stopPropagation(); restore(); };
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') save();
+                if (e.key === 'Escape') restore();
+            };
         }
 
         function editSampleRate(programId, element) {

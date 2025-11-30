@@ -141,7 +141,9 @@
         }
 
         function exportProgram(programId, programName) {
-            window.location.href = '/api/export/' + programId;
+            const filename = prompt('ファイル名を入力してください:', programName);
+            if (filename === null) return;
+            window.location.href = '/api/export/' + programId + '?filename=' + encodeURIComponent(filename);
         }
 
         function playProgram(programId) {
