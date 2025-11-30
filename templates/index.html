@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>音波洗浄システム</title>
+    <title>WaveGenerator</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header>
         <div class="container">
-            <h1>🔊 音波洗浄システム</h1>
+            <h1>WaveGenerator</h1>
         </div>
     </header>
 
@@ -148,6 +148,9 @@
             });
             const card = document.querySelector(`[data-program-id="${programId}"]`);
             if (card) card.classList.add('selected');
+
+            // 選択を保存
+            localStorage.setItem('selectedProgramId', programId);
         }
 
         function getSelectedProgram() {
@@ -251,15 +254,15 @@
 
             const sampleRateChoice = prompt(
                 'サンプリングレートを選択してください:\n' +
-                '1: 44100 Hz (CD品質・標準)\n' +
-                '2: 48000 Hz (動画/放送品質)\n' +
+                '1: 48000 Hz (動画/放送品質・標準)\n' +
+                '2: 44100 Hz (CD品質)\n' +
                 '3: 22050 Hz (低品質・軽量)\n' +
                 '4: 96000 Hz (ハイレゾ)',
                 '1'
             );
 
-            const sampleRates = { '1': 44100, '2': 48000, '3': 22050, '4': 96000 };
-            const sampleRate = sampleRates[sampleRateChoice] || 44100;
+            const sampleRates = { '1': 48000, '2': 44100, '3': 22050, '4': 96000 };
+            const sampleRate = sampleRates[sampleRateChoice] || 48000;
 
             fetch('/api/programs', {
                 method: 'POST',
@@ -347,6 +350,19 @@
         // 1秒ごとにステータスを更新
         setInterval(pollStatus, 1000);
         pollStatus();
+
+        // ページ読み込み時に前の選択を復元
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedProgramId = localStorage.getItem('selectedProgramId');
+            if (savedProgramId) {
+                const radio = document.getElementById('program-' + savedProgramId);
+                if (radio) {
+                    radio.checked = true;
+                    const card = document.querySelector(`[data-program-id="${savedProgramId}"]`);
+                    if (card) card.classList.add('selected');
+                }
+            }
+        });
     </script>
 </body>
 </html>

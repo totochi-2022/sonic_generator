@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ program.name }} - 音波洗浄システム</title>
+    <title>{{ program.name }} - WaveGenerator</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header>
         <div class="container">
-            <h1 class="editable" onclick="editProgramName('{{ program.id }}', this)" title="クリックして編集" style="cursor: pointer;">🔊 {{ program.name }}</h1>
+            <h1 class="editable" onclick="editProgramName('{{ program.id }}', this)" title="クリックして編集" style="cursor: pointer;">{{ program.name }}</h1>
         </div>
     </header>
 
@@ -736,15 +736,13 @@
             // 既に編集中なら何もしない
             if (element.querySelector('input')) return;
 
-            const currentText = element.textContent.trim();
-            // 絵文字を除いた名前部分を取得
-            const currentName = currentText.replace(/^🔊\s*/, '');
+            const currentName = element.textContent.trim();
 
             // 入力フィールドを作成
             const input = document.createElement('input');
             input.type = 'text';
             input.value = currentName;
-            input.style.cssText = 'font-size: 24px; padding: 5px 10px; border: 2px solid #3498db; border-radius: 5px; background: white; color: #2c3e50; width: 300px;';
+            input.style.cssText = 'font-size: 24px; padding: 5px 10px; border: 2px solid #667eea; border-radius: 5px; background: rgba(255,255,255,0.1); color: white; width: 300px;';
 
             const saveBtn = document.createElement('button');
             saveBtn.textContent = '保存';
@@ -756,7 +754,7 @@
             cancelBtn.className = 'btn btn-small';
             cancelBtn.style.marginLeft = '5px';
 
-            element.innerHTML = '🔊 ';
+            element.innerHTML = '';
             element.appendChild(input);
             element.appendChild(saveBtn);
             element.appendChild(cancelBtn);
@@ -764,7 +762,7 @@
             input.select();
 
             const restore = () => {
-                element.innerHTML = '🔊 ' + currentName;
+                element.textContent = currentName;
             };
 
             const save = () => {
@@ -781,9 +779,8 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    element.innerHTML = '🔊 ' + newName;
-                    // ページタイトルも更新
-                    document.title = newName + ' - 音波洗浄システム';
+                    element.textContent = newName;
+                    document.title = newName + ' - WaveGenerator';
                 })
                 .catch(error => {
                     alert('更新に失敗しました: ' + error);
