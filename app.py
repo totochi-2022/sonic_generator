@@ -13,11 +13,6 @@ import numpy as np
 from scipy.io import wavfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
-import matplotlib
-matplotlib.use('Agg')  # バックエンドをAggに設定（GUIなし）
-import matplotlib.pyplot as plt
-import io
-import platform
 import subprocess
 import tempfile
 
@@ -611,56 +606,6 @@ async def get_track_waveform_data(program_id: str, stage_idx: int, track_idx: in
         "duration": stage.duration,
         "sample_rate": generator.sample_rate
     }
-
-
-@app.get("/api/waveform/stage/{program_id}/{stage_idx}")
-async def get_stage_waveform(program_id: str, stage_idx: int):
-    """ステージの波形画像を生成"""
-    if program_id not in programs_db:
-        raise HTTPException(status_code=404, detail="Program not found")
-
-    program = programs_db[program_id]
-    if stage_idx < 0 or stage_idx >= len(program.stages):
-        raise HTTPException(status_code=404, detail="Stage not found")
-
-    generator = AudioGenerator(sample_rate=program.sample_rate)
-    stage = program.stages[stage_idx]
-
-    # ステージの音声を生成
-    stage_audio = generate_audio_for_stage(stage, generator)
-
-    # 波形画像を生成
-    plt.figure(figsize=(12, 3), facecolor='#2c3e50')
-    ax = plt.gca()
-    ax.set_facecolor('#34495e')
-
-    # サンプル数が多い場合はダウンサンプリング
-    max_samples = 10000
-    if len(stage_audio) > max_samples:
-        step = len(stage_audio) // max_samples
-        audio_display = stage_audio[::step]
-        time_display = np.arange(len(audio_display)) * step / generator.sample_rate
-    else:
-        audio_display = stage_audio
-        time_display = np.arange(len(audio_display)) / generator.sample_rate
-
-    plt.plot(time_display, audio_display, color='#3498db', linewidth=0.5)
-    plt.xlabel('Time (s)', color='white')
-    plt.ylabel('Amplitude', color='white')
-    plt.title(f'{stage.name} Waveform', color='white')
-    plt.grid(True, alpha=0.3, color='white')
-    plt.ylim(-1.1, 1.1)
-    ax.tick_params(colors='white')
-    plt.tight_layout()
-
-    # 画像をメモリに保存
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor='#2c3e50')
-    plt.close()
-    buf.seek(0)
-
-    from fastapi.responses import StreamingResponse
-    return StreamingResponse(buf, media_type="image/png")
 
 
 # ===== エクスポート API =====

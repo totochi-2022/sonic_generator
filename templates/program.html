@@ -57,10 +57,6 @@
                         <p class="editable" onclick="editStageDuration('{{ program.id }}', {{ stage_idx }}, this)" title="クリックして編集" style="color: #7f8c8d; font-size: 14px; margin-top: 5px;">時間: {{ stage.duration }}秒</p>
                     </div>
                     <div>
-                        <button class="btn btn-small"
-                                onclick="showWaveform('{{ program.id }}', {{ stage_idx }})">
-                            📊 波形
-                        </button>
                         <button class="btn btn-small btn-success"
                                 onclick="playStage('{{ program.id }}', {{ stage_idx }})">
                             ▶️ 再生
@@ -70,11 +66,6 @@
                             🗑️
                         </button>
                     </div>
-                </div>
-
-                <!-- 波形表示エリア -->
-                <div id="waveform-{{ stage_idx }}" style="display: none; margin-top: 15px; background: #2c3e50; padding: 10px; border-radius: 5px;">
-                    <canvas id="waveform-canvas-{{ stage_idx }}" width="1200" height="150" style="width: 100%; height: auto; background: #34495e;"></canvas>
                 </div>
 
                 <!-- トラックリスト -->
@@ -306,10 +297,6 @@
                 isWebAudioPlaying = false;
                 currentSource = null;
                 currentGainNode = null;
-                // 波形スクロールを停止
-                for (let idx in waveformAnimations) {
-                    stopWaveformScroll(idx);
-                }
             };
 
             isWebAudioPlaying = true;
@@ -507,12 +494,6 @@
             fetch('/api/stop', {
                 method: 'POST'
             })
-            .then(() => {
-                // 全ての波形スクロールを停止
-                for (let idx in waveformAnimations) {
-                    stopWaveformScroll(idx);
-                }
-            })
             .catch(error => {
                 alert('停止エラー: ' + error);
             });
@@ -524,15 +505,10 @@
             if (backend === 'webaudio') {
                 // Web Audio APIで再生
                 await fetchAndPlayAudio(`/api/waveform/data/stage/${programId}/${stageIdx}?full=true`);
-                startWaveformScroll(stageIdx);
             } else {
                 // サーバー側で再生
                 fetch(`/api/play/stage/${programId}/${stageIdx}?backend=${backend}`, {
                     method: 'POST'
-                })
-                .then(() => {
-                    // 該当ステージの波形スクロールを開始
-                    startWaveformScroll(stageIdx);
                 })
                 .catch(error => {
                     alert('再生エラー: ' + error);
@@ -546,15 +522,10 @@
             if (backend === 'webaudio') {
                 // Web Audio APIで再生
                 await fetchAndPlayAudio(`/api/waveform/data/track/${programId}/${stageIdx}/${trackIdx}`);
-                startWaveformScroll(stageIdx);
             } else {
                 // サーバー側で再生
                 fetch(`/api/play/track/${programId}/${stageIdx}/${trackIdx}?backend=${backend}`, {
                     method: 'POST'
-                })
-                .then(() => {
-                    // 該当ステージの波形スクロールを開始
-                    startWaveformScroll(stageIdx);
                 })
                 .catch(error => {
                     alert('再生エラー: ' + error);
@@ -739,134 +710,6 @@
             .catch(error => {
                 alert('エラーが発生しました: ' + error);
             });
-        }
-
-        // 波形アニメーション用の変数
-        const waveformAnimations = {};
-
-        function showWaveform(programId, stageIdx) {
-            const waveformDiv = document.getElementById('waveform-' + stageIdx);
-            const canvas = document.getElementById('waveform-canvas-' + stageIdx);
-
-            if (waveformDiv.style.display === 'none') {
-                // 波形を表示
-                waveformDiv.style.display = 'block';
-
-                // 波形データを取得して描画
-                fetch(`/api/waveform/data/stage/${programId}/${stageIdx}`)
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        if (!data.waveform || !Array.isArray(data.waveform)) {
-                            throw new Error('Invalid waveform data');
-                        }
-                        initWaveformDisplay(canvas, data.waveform, data.duration, stageIdx);
-                    })
-                    .catch(error => {
-                        console.error('Waveform error:', error);
-                        alert('波形データの取得に失敗しました: ' + error.message);
-                        waveformDiv.style.display = 'none';
-                    });
-            } else {
-                // 波形を非表示
-                waveformDiv.style.display = 'none';
-
-                // アニメーションを停止
-                if (waveformAnimations[stageIdx]) {
-                    cancelAnimationFrame(waveformAnimations[stageIdx].animationId);
-                    waveformAnimations[stageIdx] = null;
-                }
-            }
-        }
-
-        function initWaveformDisplay(canvas, waveformData, duration, stageIdx) {
-            const ctx = canvas.getContext('2d');
-            const width = canvas.width;
-            const height = canvas.height;
-
-            // アニメーション状態
-            let offset = 0;
-            let isPlaying = false;
-            let startTime = null;
-            const scrollSpeed = width / (duration * 60); // 60fps想定でのスクロール速度
-
-            function drawWaveform(timestamp) {
-                // 背景をクリア
-                ctx.fillStyle = '#34495e';
-                ctx.fillRect(0, 0, width, height);
-
-                // 中央線を描画
-                ctx.strokeStyle = '#7f8c8d';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(0, height / 2);
-                ctx.lineTo(width, height / 2);
-                ctx.stroke();
-
-                // 波形を描画
-                ctx.strokeStyle = isPlaying ? '#3498db' : '#7f8c8d';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-
-                const samplesPerPixel = waveformData.length / width;
-
-                for (let x = 0; x < width; x++) {
-                    // スクロールオフセットを考慮
-                    const dataIndex = Math.floor(((x + offset) % width) * samplesPerPixel);
-                    if (dataIndex < waveformData.length) {
-                        const sample = waveformData[dataIndex];
-                        const y = (height / 2) - (sample * height / 2);
-
-                        if (x === 0) {
-                            ctx.moveTo(x, y);
-                        } else {
-                            ctx.lineTo(x, y);
-                        }
-                    }
-                }
-
-                ctx.stroke();
-
-                // 再生中のみオフセットを更新（スクロール）
-                if (isPlaying) {
-                    offset = (offset + scrollSpeed) % width;
-                }
-
-                // 次のフレームをリクエスト
-                if (waveformAnimations[stageIdx]) {
-                    waveformAnimations[stageIdx].animationId = requestAnimationFrame(drawWaveform);
-                }
-            }
-
-            // アニメーション状態を保存
-            waveformAnimations[stageIdx] = {
-                animationId: null,
-                setPlaying: function(playing) {
-                    isPlaying = playing;
-                    if (!playing) {
-                        offset = 0; // 停止時にリセット
-                    }
-                }
-            };
-
-            // 初期描画開始
-            waveformAnimations[stageIdx].animationId = requestAnimationFrame(drawWaveform);
-        }
-
-        function startWaveformScroll(stageIdx) {
-            if (waveformAnimations[stageIdx]) {
-                waveformAnimations[stageIdx].setPlaying(true);
-            }
-        }
-
-        function stopWaveformScroll(stageIdx) {
-            if (waveformAnimations[stageIdx]) {
-                waveformAnimations[stageIdx].setPlaying(false);
-            }
         }
 
         function editStageComment(programId, stageIdx, element) {
