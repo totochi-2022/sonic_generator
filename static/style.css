@@ -36,6 +36,12 @@ header h1 {
     text-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
+/* 編集画面ヘッダー */
+header.header-edit {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    box-shadow: 0 4px 20px rgba(56, 239, 125, 0.4);
+}
+
 /* ボタン */
 .btn {
     display: inline-flex;
@@ -364,6 +370,11 @@ header h1 {
 
 .form-group input::placeholder {
     color: #718096;
+}
+
+.form-group select option {
+    background: #1a1a2e;
+    color: #e0e0e0;
 }
 
 .form-row {

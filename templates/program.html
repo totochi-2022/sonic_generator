@@ -7,9 +7,9 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <header>
+    <header class="header-edit">
         <div class="container">
-            <h1 class="editable" onclick="editProgramName('{{ program.id }}', this)" title="クリックして編集" style="cursor: pointer;">{{ program.name }}</h1>
+            <h1 style="cursor: pointer;"><span class="editable" id="program-name" onclick="editProgramName('{{ program.id }}', this)" title="クリックして編集">{{ program.name }}</span> <span style="font-size: 16px; opacity: 0.8;">- 編集中</span></h1>
         </div>
     </header>
 
@@ -491,8 +491,8 @@
             .then(program => {
                 const track = program.stages[stageIdx].tracks[trackIdx];
 
-                let formHtml = '<div style="background: white; padding: 20px; border-radius: 5px; margin-top: 15px;">';
-                formHtml += '<h4>トラックを編集</h4>';
+                let formHtml = '<div class="stage" style="margin-top: 15px;">';
+                formHtml += '<h4 style="color: #ffffff; margin-bottom: 15px;">トラックを編集</h4>';
 
                 if (track.type === 'tone') {
                     formHtml += `

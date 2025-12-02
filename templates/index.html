@@ -119,6 +119,9 @@
         let audioContext = null;
         let currentSource = null;
         let currentGainNode = null;
+        let webAudioPlaying = false;
+        let webAudioStartTime = 0;
+        let webAudioDuration = 0;
 
         function stopWebAudio() {
             if (currentSource) {
@@ -134,6 +137,7 @@
                 } catch (e) {}
                 currentGainNode = null;
             }
+            webAudioPlaying = false;
         }
 
         // ===== 選択関連 =====
@@ -215,6 +219,15 @@
                     currentSource.buffer = audioBuffer;
                     currentSource.connect(currentGainNode);
                     currentGainNode.connect(audioContext.destination);
+
+                    // 再生状態を追跡
+                    webAudioPlaying = true;
+                    webAudioStartTime = audioContext.currentTime;
+                    webAudioDuration = data.duration;
+
+                    currentSource.onended = function() {
+                        webAudioPlaying = false;
+                    };
 
                     currentSource.start(0);
                 })
@@ -325,13 +338,23 @@
         }
 
         function pollStatus() {
+            const statusEl = document.getElementById('playback-status');
+            const stageEl = document.getElementById('playback-stage');
+            const timeEl = document.getElementById('playback-time');
+
+            // Web Audio再生中はクライアント側の情報を使う
+            if (webAudioPlaying && audioContext) {
+                const elapsed = audioContext.currentTime - webAudioStartTime;
+                statusEl.textContent = '再生中';
+                statusEl.classList.add('playing');
+                stageEl.textContent = 'ステージ: 1';
+                timeEl.textContent = `${formatTime(elapsed)} / ${formatTime(webAudioDuration)}`;
+                return;
+            }
+
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
-                    const statusEl = document.getElementById('playback-status');
-                    const stageEl = document.getElementById('playback-stage');
-                    const timeEl = document.getElementById('playback-time');
-
                     statusEl.classList.remove('playing');
 
                     if (data.is_playing) {
