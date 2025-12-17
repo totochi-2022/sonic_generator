@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ program.name }} - WaveGenerator</title>
+    <title>{{ program.name }} - SonicGenerator</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -780,7 +780,7 @@
                 .then(response => response.json())
                 .then(data => {
                     element.textContent = newName;
-                    document.title = newName + ' - WaveGenerator';
+                    document.title = newName + ' - SonicGenerator';
                 })
                 .catch(error => {
                     alert('更新に失敗しました: ' + error);
