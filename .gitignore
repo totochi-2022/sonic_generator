@@ -21,6 +21,7 @@ ENV/
 .DS_Store
 Thumbs.db
 *.Zone.Identifier
+*:Zone.Identifier
 
 # Application specific
 programs/*.json
