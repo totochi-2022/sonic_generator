@@ -267,6 +267,38 @@ async def program_edit(request: Request, program_id: str):
     })
 
 
+@app.get("/wav-player", response_class=HTMLResponse)
+async def wav_player(request: Request):
+    """WAVファイルプレイヤーページ"""
+    import re
+    # exportsディレクトリのWAVファイル一覧を取得
+    wav_files = []
+    # UUID pattern: _xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    uuid_pattern = re.compile(r'_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    for wav_path in EXPORTS_DIR.glob("*.wav"):
+        # UUIDを除いた表示名を作成
+        display_name = uuid_pattern.sub('', wav_path.stem)
+        wav_files.append({
+            "name": display_name if display_name else wav_path.stem,
+            "filename": wav_path.name,
+            "path": f"/exports/{wav_path.name}"
+        })
+
+    return templates.TemplateResponse("wav_player.html", {
+        "request": request,
+        "wav_files": wav_files
+    })
+
+
+@app.get("/exports/{filename}")
+async def get_wav_file(filename: str):
+    """WAVファイルを取得"""
+    file_path = EXPORTS_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=str(file_path), media_type="audio/wav")
+
+
 # ===== プログラム管理 API =====
 
 @app.get("/api/programs")
