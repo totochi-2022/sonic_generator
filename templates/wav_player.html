@@ -226,6 +226,126 @@
         .back-link:hover {
             color: #ffffff;
         }
+
+        /* タイマー設定 */
+        .timer-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .timer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .timer-header h4 {
+            margin: 0;
+            color: #ffffff;
+        }
+
+        .timer-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .timer-toggle input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .timer-modes {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .timer-mode-btn {
+            flex: 1;
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid transparent;
+            border-radius: 8px;
+            color: #a0aec0;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 13px;
+        }
+
+        .timer-mode-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .timer-mode-btn.active {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.2);
+            color: #ffffff;
+        }
+
+        .timer-input-group {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .timer-input-group.active {
+            display: flex;
+        }
+
+        .timer-input-group label {
+            color: #a0aec0;
+            min-width: 80px;
+        }
+
+        .timer-input-group input {
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 14px;
+            width: 120px;
+        }
+
+        .timer-input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .timer-input-group span {
+            color: #a0aec0;
+        }
+
+        .timer-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            color: #a0aec0;
+        }
+
+        .timer-status.active {
+            background: rgba(102, 126, 234, 0.2);
+            color: #ffffff;
+        }
+
+        .timer-status .remaining {
+            font-weight: 600;
+            color: #38ef7d;
+        }
+
+        .timer-status .loop-count {
+            margin-left: auto;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -274,19 +394,6 @@
                     停止
                 </button>
 
-                <div class="loop-toggle" id="loop-toggle">
-                    <input type="checkbox" id="loop-checkbox" onchange="toggleLoop()">
-                    <label for="loop-checkbox">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="17 1 21 5 17 9"/>
-                            <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
-                            <polyline points="7 23 3 19 7 15"/>
-                            <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
-                        </svg>
-                        繰り返し
-                    </label>
-                </div>
-
                 <div class="volume-control">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -295,6 +402,73 @@
                     </svg>
                     <input type="range" id="volume-slider" min="0" max="100" value="80" oninput="changeVolume(this.value)">
                     <span class="volume-label" id="volume-label">80%</span>
+                </div>
+            </div>
+
+            <!-- 繰り返し・停止タイマー -->
+            <div class="timer-section">
+                <div class="timer-header">
+                    <div class="loop-toggle" id="loop-toggle">
+                        <input type="checkbox" id="loop-checkbox" onchange="toggleLoop()">
+                        <label for="loop-checkbox">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="17 1 21 5 17 9"/>
+                                <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                                <polyline points="7 23 3 19 7 15"/>
+                                <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                            </svg>
+                            無限に繰り返し
+                        </label>
+                    </div>
+                </div>
+
+                <div id="timer-settings">
+                    <div class="timer-header" style="margin-top: 16px;">
+                        <h4>停止タイマー</h4>
+                        <div class="timer-toggle">
+                            <input type="checkbox" id="timer-enabled" onchange="toggleTimer()">
+                            <label for="timer-enabled">有効</label>
+                        </div>
+                    </div>
+
+                    <div class="timer-modes">
+                    <button class="timer-mode-btn active" data-mode="duration" onclick="setTimerMode('duration')">
+                        再生時間
+                    </button>
+                    <button class="timer-mode-btn" data-mode="time" onclick="setTimerMode('time')">
+                        時刻指定
+                    </button>
+                    <button class="timer-mode-btn" data-mode="count" onclick="setTimerMode('count')">
+                        回数指定
+                    </button>
+                </div>
+
+                <div class="timer-input-group active" id="timer-duration-input">
+                    <label>再生時間</label>
+                    <input type="number" id="timer-minutes" value="30" min="1" max="999">
+                    <span>分後に停止</span>
+                </div>
+
+                <div class="timer-input-group" id="timer-time-input">
+                    <label>停止時刻</label>
+                    <input type="time" id="timer-time" value="18:00">
+                    <span>に停止</span>
+                </div>
+
+                <div class="timer-input-group" id="timer-count-input">
+                    <label>再生回数</label>
+                    <input type="number" id="timer-count" value="5" min="1" max="999">
+                    <span>回で停止</span>
+                </div>
+
+                    <div class="timer-status" id="timer-status">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        <span id="timer-status-text">タイマー: OFF</span>
+                        <span class="loop-count" id="loop-count-display"></span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -347,6 +521,14 @@
         let pauseTime = 0;
         let currentFile = null;
         let animationId = null;
+
+        // タイマー管理
+        let timerEnabled = false;
+        let timerMode = 'duration'; // 'duration', 'time', 'count'
+        let timerStartTime = null;
+        let loopCount = 0;
+        let shouldStopAfterLoop = false;
+        let timerIntervalId = null;
 
         // 初期化
         function initAudioContext() {
@@ -406,11 +588,28 @@
 
             currentSource = audioContext.createBufferSource();
             currentSource.buffer = audioBuffer;
-            currentSource.loop = isLooping;
+            // ループはonendedで手動管理（タイマー対応のため）
+            currentSource.loop = false;
             currentSource.connect(gainNode);
 
             currentSource.onended = function() {
-                if (!isLooping && isPlaying) {
+                if (isLooping && isPlaying) {
+                    // ループ時：カウントを増やす
+                    loopCount++;
+                    updateLoopCountDisplay();
+
+                    // タイマーで停止フラグが立っていたら停止
+                    if (shouldStopAfterLoop) {
+                        shouldStopAfterLoop = false;
+                        stopPlayback();
+                        timerComplete();
+                        return;
+                    }
+
+                    // 次のループを開始
+                    pauseTime = 0;
+                    playAudio();
+                } else if (!isLooping && isPlaying) {
                     isPlaying = false;
                     pauseTime = 0;
                     updatePlayButton();
@@ -426,6 +625,11 @@
             isPlaying = true;
             updatePlayButton();
             updateProgress();
+
+            // タイマーが有効で未開始なら開始
+            if (timerEnabled && !timerIntervalId) {
+                startTimer();
+            }
 
             // ファイル一覧の表示更新
             document.querySelectorAll('.file-item').forEach(el => {
@@ -540,11 +744,21 @@
         function toggleLoop() {
             isLooping = document.getElementById('loop-checkbox').checked;
             const toggle = document.getElementById('loop-toggle');
+            const timerSettings = document.getElementById('timer-settings');
 
             if (isLooping) {
+                // 無限に繰り返し → タイマー非表示
                 toggle.classList.add('active');
+                timerSettings.style.display = 'none';
+                // タイマーも無効化
+                if (timerEnabled) {
+                    document.getElementById('timer-enabled').checked = false;
+                    toggleTimer();
+                }
             } else {
+                // 繰り返しOFF → タイマー表示（回数/時間指定で繰り返し）
                 toggle.classList.remove('active');
+                timerSettings.style.display = 'block';
             }
 
             // 再生中の場合は再起動してループ設定を反映
@@ -554,6 +768,8 @@
                 pauseAudio();
                 playAudio();
             }
+
+            updateLoopCountDisplay();
         }
 
         // 音量変更
@@ -630,6 +846,154 @@
                 togglePlay();
             }
         });
+
+        // ===== タイマー機能 =====
+
+        function setTimerMode(mode) {
+            timerMode = mode;
+
+            // ボタンの状態更新
+            document.querySelectorAll('.timer-mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+
+            // 入力フィールドの表示切り替え
+            document.getElementById('timer-duration-input').classList.toggle('active', mode === 'duration');
+            document.getElementById('timer-time-input').classList.toggle('active', mode === 'time');
+            document.getElementById('timer-count-input').classList.toggle('active', mode === 'count');
+        }
+
+        function toggleTimer() {
+            timerEnabled = document.getElementById('timer-enabled').checked;
+            const statusEl = document.getElementById('timer-status');
+
+            if (timerEnabled) {
+                statusEl.classList.add('active');
+                // 再生中なら即座にタイマー開始、そうでなければ待機
+                if (isPlaying) {
+                    startTimer();
+                } else {
+                    document.getElementById('timer-status-text').textContent = '再生開始で計測開始';
+                }
+            } else {
+                stopTimer();
+                statusEl.classList.remove('active');
+                document.getElementById('timer-status-text').textContent = 'タイマー: OFF';
+            }
+        }
+
+        function startTimer() {
+            if (!timerEnabled) return;
+
+            timerStartTime = Date.now();
+            loopCount = 0;
+            shouldStopAfterLoop = false;
+            updateLoopCountDisplay();
+
+            // 既存のタイマーをクリア
+            if (timerIntervalId) {
+                clearInterval(timerIntervalId);
+            }
+
+            // タイマー更新を開始
+            timerIntervalId = setInterval(updateTimerStatus, 1000);
+            updateTimerStatus();
+        }
+
+        function stopTimer() {
+            if (timerIntervalId) {
+                clearInterval(timerIntervalId);
+                timerIntervalId = null;
+            }
+            shouldStopAfterLoop = false;
+        }
+
+        function updateTimerStatus() {
+            if (!timerEnabled) return;
+
+            const statusText = document.getElementById('timer-status-text');
+            let remaining = '';
+            let shouldStop = false;
+
+            if (timerMode === 'duration') {
+                // 再生時間指定
+                const minutes = parseInt(document.getElementById('timer-minutes').value) || 30;
+                const targetMs = minutes * 60 * 1000;
+                const elapsed = Date.now() - timerStartTime;
+                const remainingMs = targetMs - elapsed;
+
+                if (remainingMs <= 0) {
+                    shouldStop = true;
+                    remaining = '0:00';
+                } else {
+                    const remainingSec = Math.ceil(remainingMs / 1000);
+                    remaining = formatTime(remainingSec);
+                }
+                statusText.innerHTML = `残り: <span class="remaining">${remaining}</span>`;
+
+            } else if (timerMode === 'time') {
+                // 時刻指定
+                const timeStr = document.getElementById('timer-time').value;
+                const [hours, mins] = timeStr.split(':').map(Number);
+                const now = new Date();
+                const target = new Date();
+                target.setHours(hours, mins, 0, 0);
+
+                // 指定時刻が過ぎていたら翌日と判断
+                if (target <= now) {
+                    target.setDate(target.getDate() + 1);
+                }
+
+                const remainingMs = target - now;
+                if (remainingMs <= 0) {
+                    shouldStop = true;
+                    remaining = '0:00';
+                } else {
+                    const remainingSec = Math.ceil(remainingMs / 1000);
+                    const h = Math.floor(remainingSec / 3600);
+                    const m = Math.floor((remainingSec % 3600) / 60);
+                    const s = remainingSec % 60;
+                    if (h > 0) {
+                        remaining = `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                    } else {
+                        remaining = `${m}:${s.toString().padStart(2, '0')}`;
+                    }
+                }
+                statusText.innerHTML = `${timeStr} まで: <span class="remaining">${remaining}</span>`;
+
+            } else if (timerMode === 'count') {
+                // 回数指定
+                const targetCount = parseInt(document.getElementById('timer-count').value) || 5;
+                const remainingCount = targetCount - loopCount;
+
+                if (remainingCount <= 0) {
+                    shouldStop = true;
+                }
+                statusText.innerHTML = `残り: <span class="remaining">${Math.max(0, remainingCount)}回</span>`;
+            }
+
+            // 停止フラグを設定（次のループ終了時に停止）
+            if (shouldStop && isPlaying && isLooping) {
+                shouldStopAfterLoop = true;
+            }
+        }
+
+        function updateLoopCountDisplay() {
+            const display = document.getElementById('loop-count-display');
+            if (isLooping) {
+                display.textContent = `再生回数: ${loopCount}`;
+            } else {
+                display.textContent = '';
+            }
+        }
+
+        function timerComplete() {
+            timerEnabled = false;
+            document.getElementById('timer-enabled').checked = false;
+            document.getElementById('timer-status').classList.remove('active');
+            document.getElementById('timer-status-text').textContent = 'タイマー完了';
+            stopTimer();
+        }
     </script>
 </body>
 </html>
