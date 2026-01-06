@@ -346,6 +346,12 @@
             margin-left: auto;
             font-size: 13px;
         }
+
+        /* タイマー無効時のスタイル */
+        .timer-disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -431,6 +437,7 @@
                         </div>
                     </div>
 
+                    <div id="timer-options" class="timer-disabled">
                     <div class="timer-modes">
                     <button class="timer-mode-btn active" data-mode="duration" onclick="setTimerMode('duration')">
                         再生時間
@@ -460,6 +467,7 @@
                     <input type="number" id="timer-count" value="5" min="1" max="999">
                     <span>回で停止</span>
                 </div>
+                    </div>
 
                     <div class="timer-status" id="timer-status">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -526,6 +534,7 @@
         let timerEnabled = false;
         let timerMode = 'duration'; // 'duration', 'time', 'count'
         let timerStartTime = null;
+        let timerTargetTime = null;  // 時刻指定モード用の目標時刻
         let loopCount = 0;
         let shouldStopAfterLoop = false;
         let timerIntervalId = null;
@@ -568,9 +577,6 @@
                 document.getElementById('now-playing').textContent = name;
                 document.getElementById('now-playing').classList.remove('empty');
                 document.getElementById('total-time').textContent = formatTime(audioBuffer.duration);
-
-                // 自動再生
-                playAudio();
             } catch (error) {
                 alert('ファイルの読み込みに失敗しました: ' + error);
             }
@@ -593,12 +599,25 @@
             currentSource.connect(gainNode);
 
             currentSource.onended = function() {
-                if (isLooping && isPlaying) {
+                // タイマーが有効な場合は全モードでループを有効にする
+                const shouldLoop = isLooping || timerEnabled;
+
+                if (shouldLoop && isPlaying) {
                     // ループ時：カウントを増やす
                     loopCount++;
                     updateLoopCountDisplay();
 
-                    // タイマーで停止フラグが立っていたら停止
+                    // 回数指定タイマーの場合、ここで直接チェック（1秒インターバルに依存しない）
+                    if (timerEnabled && timerMode === 'count') {
+                        const targetCount = parseInt(document.getElementById('timer-count').value) || 5;
+                        if (loopCount >= targetCount) {
+                            stopPlayback();
+                            timerComplete();
+                            return;
+                        }
+                    }
+
+                    // 他のタイマーモード（時間指定等）での停止フラグチェック
                     if (shouldStopAfterLoop) {
                         shouldStopAfterLoop = false;
                         stopPlayback();
@@ -609,7 +628,7 @@
                     // 次のループを開始
                     pauseTime = 0;
                     playAudio();
-                } else if (!isLooping && isPlaying) {
+                } else if (!shouldLoop && isPlaying) {
                     isPlaying = false;
                     pauseTime = 0;
                     updatePlayButton();
@@ -673,6 +692,14 @@
             document.querySelectorAll('.file-item').forEach(el => {
                 el.classList.remove('playing');
             });
+
+            // タイマー状態をリセット
+            stopTimer();
+            loopCount = 0;
+            updateLoopCountDisplay();
+            if (timerEnabled) {
+                document.getElementById('timer-status-text').textContent = '再生開始で計測開始';
+            }
         }
 
         // 再生/一時停止切り替え
@@ -710,8 +737,9 @@
             const elapsed = audioContext.currentTime - startTime;
             const duration = audioBuffer.duration;
 
-            // ループ時は経過時間をモジュロで計算
-            const displayTime = isLooping ? (elapsed % duration) : Math.min(elapsed, duration);
+            // ループ時は経過時間をモジュロで計算（タイマー有効時も含む）
+            const shouldLoop = isLooping || timerEnabled;
+            const displayTime = shouldLoop ? (elapsed % duration) : Math.min(elapsed, duration);
             const progress = (displayTime / duration) * 100;
 
             document.getElementById('progress-fill').style.width = progress + '%';
@@ -808,8 +836,6 @@
                 document.getElementById('now-playing').textContent = currentFile;
                 document.getElementById('now-playing').classList.remove('empty');
                 document.getElementById('total-time').textContent = formatTime(audioBuffer.duration);
-
-                playAudio();
             } catch (error) {
                 alert('ファイルの読み込みに失敗しました: ' + error);
             }
@@ -861,14 +887,27 @@
             document.getElementById('timer-duration-input').classList.toggle('active', mode === 'duration');
             document.getElementById('timer-time-input').classList.toggle('active', mode === 'time');
             document.getElementById('timer-count-input').classList.toggle('active', mode === 'count');
+
+            // モード切替時にタイマー状態をリセット＆表示更新
+            if (timerEnabled) {
+                // 再生中ならタイマー再開始
+                if (isPlaying) {
+                    startTimer();
+                } else {
+                    // 停止中なら表示だけ更新
+                    document.getElementById('timer-status-text').textContent = '再生開始で計測開始';
+                }
+            }
         }
 
         function toggleTimer() {
             timerEnabled = document.getElementById('timer-enabled').checked;
             const statusEl = document.getElementById('timer-status');
+            const optionsEl = document.getElementById('timer-options');
 
             if (timerEnabled) {
                 statusEl.classList.add('active');
+                optionsEl.classList.remove('timer-disabled');
                 // 再生中なら即座にタイマー開始、そうでなければ待機
                 if (isPlaying) {
                     startTimer();
@@ -876,9 +915,13 @@
                     document.getElementById('timer-status-text').textContent = '再生開始で計測開始';
                 }
             } else {
+                // 完全リセット
                 stopTimer();
+                loopCount = 0;
                 statusEl.classList.remove('active');
+                optionsEl.classList.add('timer-disabled');
                 document.getElementById('timer-status-text').textContent = 'タイマー: OFF';
+                updateLoopCountDisplay();
             }
         }
 
@@ -889,6 +932,19 @@
             loopCount = 0;
             shouldStopAfterLoop = false;
             updateLoopCountDisplay();
+
+            // 時刻指定モードの場合、目標時刻を計算して保存
+            if (timerMode === 'time') {
+                const timeStr = document.getElementById('timer-time').value;
+                const [hours, mins] = timeStr.split(':').map(Number);
+                const now = new Date();
+                timerTargetTime = new Date();
+                timerTargetTime.setHours(hours, mins, 0, 0);
+                // 指定時刻が過ぎていたら翌日
+                if (timerTargetTime <= now) {
+                    timerTargetTime.setDate(timerTargetTime.getDate() + 1);
+                }
+            }
 
             // 既存のタイマーをクリア
             if (timerIntervalId) {
@@ -932,19 +988,11 @@
                 statusText.innerHTML = `残り: <span class="remaining">${remaining}</span>`;
 
             } else if (timerMode === 'time') {
-                // 時刻指定
+                // 時刻指定（startTimer で計算した目標時刻を使用）
                 const timeStr = document.getElementById('timer-time').value;
-                const [hours, mins] = timeStr.split(':').map(Number);
                 const now = new Date();
-                const target = new Date();
-                target.setHours(hours, mins, 0, 0);
+                const remainingMs = timerTargetTime - now;
 
-                // 指定時刻が過ぎていたら翌日と判断
-                if (target <= now) {
-                    target.setDate(target.getDate() + 1);
-                }
-
-                const remainingMs = target - now;
                 if (remainingMs <= 0) {
                     shouldStop = true;
                     remaining = '0:00';
@@ -973,14 +1021,17 @@
             }
 
             // 停止フラグを設定（次のループ終了時に停止）
-            if (shouldStop && isPlaying && isLooping) {
+            const shouldLoop = isLooping || timerEnabled;
+            if (shouldStop && isPlaying && shouldLoop) {
                 shouldStopAfterLoop = true;
             }
         }
 
         function updateLoopCountDisplay() {
             const display = document.getElementById('loop-count-display');
-            if (isLooping) {
+            // 無限ループ または タイマー有効時にカウント表示
+            const shouldShowCount = isLooping || timerEnabled;
+            if (shouldShowCount) {
                 display.textContent = `再生回数: ${loopCount}`;
             } else {
                 display.textContent = '';
