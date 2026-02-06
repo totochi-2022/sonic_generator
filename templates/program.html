@@ -20,7 +20,7 @@
                     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
                     <polyline points="9 22 9 12 15 12 15 22"/>
                 </svg>
-                トップに戻る
+                Main
             </a>
         </div>
 
@@ -138,8 +138,8 @@
                     </div>
 
                     <!-- トラック追加フォーム -->
-                    <div id="add-track-form-{{ stage_idx }}" style="display: none; margin-top: 15px; padding: 15px; background: white; border-radius: 5px;">
-                        <h4>新しいトラックを追加</h4>
+                    <div id="add-track-form-{{ stage_idx }}" style="display: none; margin-top: 15px; padding: 20px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px;">
+                        <h4 style="color: #ffffff; margin-bottom: 15px;">新しいトラックを追加</h4>
 
                         <div class="form-group">
                             <label>トラック種類:</label>
@@ -239,7 +239,7 @@
 
             {% if true %}
             <div class="mt-20">
-                <button class="btn btn-success" onclick="addStage('{{ program.id }}')">
+                <button class="btn btn-success" onclick="showAddStageModal()">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="12" y1="5" x2="12" y2="19"/>
                         <line x1="5" y1="12" x2="19" y2="12"/>
@@ -248,6 +248,25 @@
                 </button>
             </div>
             {% endif %}
+        </div>
+    </div>
+
+    <!-- ステージ追加モーダル -->
+    <div id="add-stage-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; backdrop-filter:blur(4px);">
+        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:linear-gradient(135deg,#1a1a2e,#16213e); border:1px solid rgba(255,255,255,0.15); border-radius:16px; padding:32px; min-width:360px; box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+            <h3 style="color:#fff; margin:0 0 24px 0; font-size:20px;">ステージ追加</h3>
+            <div style="margin-bottom:20px;">
+                <label style="display:block; color:#e0e0e0; margin-bottom:8px; font-size:14px;">再生時間（秒）</label>
+                <input type="number" id="stage-duration-input" value="30" min="0.1" step="0.1" style="width:100%; padding:12px 16px; background:rgba(255,255,255,0.1); border:2px solid rgba(255,255,255,0.2); border-radius:10px; color:#ffffff; font-size:15px; box-sizing:border-box;">
+            </div>
+            <div style="margin-bottom:28px;">
+                <label style="display:block; color:#e0e0e0; margin-bottom:8px; font-size:14px;">コメント（省略可）</label>
+                <input type="text" id="stage-comment-input" placeholder="コメントを入力..." style="width:100%; padding:12px 16px; background:rgba(255,255,255,0.1); border:2px solid rgba(255,255,255,0.2); border-radius:10px; color:#ffffff; font-size:15px; box-sizing:border-box;">
+            </div>
+            <div style="display:flex; gap:12px; justify-content:flex-end;">
+                <button class="btn" onclick="closeAddStageModal()" style="background:linear-gradient(135deg,#4a5568,#2d3748);">キャンセル</button>
+                <button class="btn btn-success" onclick="submitAddStage()">追加</button>
+            </div>
         </div>
     </div>
 
@@ -407,11 +426,23 @@
             });
         }
 
-        function addStage(programId) {
-            const duration = prompt('ステージの再生時間（秒）を入力してください:', '30');
-            if (!duration) return;
+        function showAddStageModal() {
+            document.getElementById('add-stage-modal').style.display = 'block';
+            document.getElementById('stage-duration-input').focus();
+        }
 
-            const comment = prompt('コメント（省略可）:', '');
+        function closeAddStageModal() {
+            document.getElementById('add-stage-modal').style.display = 'none';
+        }
+
+        function submitAddStage() {
+            const duration = parseFloat(document.getElementById('stage-duration-input').value);
+            if (!duration || duration <= 0) {
+                document.getElementById('stage-duration-input').focus();
+                return;
+            }
+            const comment = document.getElementById('stage-comment-input').value.trim();
+            const programId = '{{ program.id }}';
 
             fetch(`/api/programs/${programId}/stages`, {
                 method: 'POST',
@@ -420,7 +451,7 @@
                 },
                 body: JSON.stringify({
                     comment: comment || '',
-                    duration: parseFloat(duration),
+                    duration: duration,
                     tracks: []
                 })
             })
@@ -432,6 +463,22 @@
                 alert('エラーが発生しました: ' + error);
             });
         }
+
+        // モーダル操作
+        document.getElementById('add-stage-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeAddStageModal();
+        });
+        document.getElementById('stage-duration-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') document.getElementById('stage-comment-input').focus();
+        });
+        document.getElementById('stage-comment-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') submitAddStage();
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && document.getElementById('add-stage-modal').style.display === 'block') {
+                closeAddStageModal();
+            }
+        });
 
         function deleteStage(programId, stageIdx) {
             if (!confirm('このステージを削除してもよろしいですか？')) return;
@@ -645,7 +692,7 @@
             input.value = currentComment;
             input.placeholder = 'コメントを入力...';
             input.className = 'inline-edit';
-            input.style.cssText = 'font-size: inherit; padding: 2px 5px; border: 2px solid #3498db; border-radius: 3px; width: 250px;';
+            input.style.cssText = 'font-size: inherit; padding: 4px 8px; border: 2px solid rgba(102,126,234,0.5); border-radius: 6px; background: rgba(255,255,255,0.1); color: #ffffff; width: 250px;';
 
             element.textContent = '';
             element.appendChild(input);
@@ -681,7 +728,7 @@
             input.step = '0.1';
             input.min = '0.1';
             input.className = 'inline-edit';
-            input.style.cssText = 'font-size: inherit; padding: 2px 5px; border: 2px solid #3498db; border-radius: 3px; width: 80px;';
+            input.style.cssText = 'font-size: inherit; padding: 4px 8px; border: 2px solid rgba(102,126,234,0.5); border-radius: 6px; background: rgba(255,255,255,0.1); color: #ffffff; width: 80px;';
 
             element.textContent = '時間: ';
             element.appendChild(input);
@@ -805,7 +852,7 @@
 
             // セレクトボックスを作成
             const select = document.createElement('select');
-            select.style.cssText = 'padding: 8px 12px; border: 2px solid #3498db; border-radius: 5px; background: white; color: #2c3e50; font-size: 14px; cursor: pointer;';
+            select.style.cssText = 'padding: 8px 12px; border: 2px solid rgba(102,126,234,0.5); border-radius: 8px; background: rgba(255,255,255,0.1); color: #e0e0e0; font-size: 14px; cursor: pointer;';
 
             const options = [
                 { value: 22050, label: '22050 Hz (低品質)' },
@@ -818,6 +865,7 @@
                 const option = document.createElement('option');
                 option.value = opt.value;
                 option.textContent = opt.label;
+                option.style.cssText = 'background: #1a1a2e; color: #e0e0e0;';
                 if (opt.value === currentRate) {
                     option.selected = true;
                 }

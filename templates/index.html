@@ -9,7 +9,7 @@
 <body>
     <header>
         <div class="container">
-            <h1>SonicGenerator</h1>
+            <h1>SonicGenerator <span style="font-size: 14px; opacity: 0.7; font-weight: 400;">v{{ version }}</span></h1>
         </div>
     </header>
 
@@ -31,6 +31,13 @@
                 </svg>
                 WAVE出力
             </button>
+            <button class="btn" onclick="copySelected()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                コピー
+            </button>
             <button class="btn btn-danger" onclick="deleteSelected()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"/>
@@ -38,7 +45,6 @@
                 </svg>
                 削除
             </button>
-            <span class="toolbar-spacer"></span>
             <button class="btn btn-success" onclick="createNewProgram()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="12" y1="5" x2="12" y2="19"/>
@@ -46,6 +52,7 @@
                 </svg>
                 新規作成
             </button>
+            <span class="toolbar-spacer"></span>
             <a href="/wav-player" class="btn">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M9 18V5l12-2v13"/>
@@ -119,6 +126,46 @@
                     </button>
                 </div>
             {% endif %}
+        </div>
+    </div>
+
+    <!-- エクスポートモーダル -->
+    <div id="export-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; backdrop-filter:blur(4px);">
+        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:linear-gradient(135deg,#1a1a2e,#16213e); border:1px solid rgba(255,255,255,0.15); border-radius:16px; padding:32px; min-width:360px; box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+            <h3 style="color:#fff; margin:0 0 24px 0; font-size:20px;">WAVE出力</h3>
+            <input type="hidden" id="export-program-id">
+            <div style="margin-bottom:28px;">
+                <label style="display:block; color:#e0e0e0; margin-bottom:8px; font-size:14px;">ファイル名</label>
+                <input type="text" id="export-name" style="width:100%; padding:12px 16px; background:rgba(255,255,255,0.1); border:2px solid rgba(255,255,255,0.2); border-radius:10px; color:#ffffff; font-size:15px; box-sizing:border-box;" onfocus="this.select()">
+            </div>
+            <div style="display:flex; gap:12px; justify-content:flex-end;">
+                <button class="btn" onclick="closeExportModal()" style="background:linear-gradient(135deg,#4a5568,#2d3748);">キャンセル</button>
+                <button class="btn btn-success" onclick="submitExport()">出力</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新規作成モーダル -->
+    <div id="create-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; backdrop-filter:blur(4px);">
+        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:linear-gradient(135deg,#1a1a2e,#16213e); border:1px solid rgba(255,255,255,0.15); border-radius:16px; padding:32px; min-width:360px; box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+            <h3 style="color:#fff; margin:0 0 24px 0; font-size:20px;">新規プログラム作成</h3>
+            <div style="margin-bottom:20px;">
+                <label style="display:block; color:#e0e0e0; margin-bottom:8px; font-size:14px;">プログラム名</label>
+                <input type="text" id="create-name" value="新規プログラム" style="width:100%; padding:12px 16px; background:rgba(255,255,255,0.1); border:2px solid rgba(255,255,255,0.2); border-radius:10px; color:#ffffff; font-size:15px; box-sizing:border-box;" onfocus="this.select()">
+            </div>
+            <div style="margin-bottom:28px;">
+                <label style="display:block; color:#e0e0e0; margin-bottom:8px; font-size:14px;">サンプリングレート</label>
+                <select id="create-sample-rate" style="width:100%; padding:12px 16px; background:rgba(255,255,255,0.1); border:2px solid rgba(255,255,255,0.2); border-radius:10px; color:#ffffff; font-size:15px; cursor:pointer;">
+                    <option value="48000" style="background:#1a1a2e; color:#e0e0e0;">48000 Hz（動画/放送品質・標準）</option>
+                    <option value="44100" style="background:#1a1a2e; color:#e0e0e0;">44100 Hz（CD品質）</option>
+                    <option value="22050" style="background:#1a1a2e; color:#e0e0e0;">22050 Hz（低品質・軽量）</option>
+                    <option value="96000" style="background:#1a1a2e; color:#e0e0e0;">96000 Hz（ハイレゾ）</option>
+                </select>
+            </div>
+            <div style="display:flex; gap:12px; justify-content:flex-end;">
+                <button class="btn" onclick="closeCreateModal()" style="background:linear-gradient(135deg,#4a5568,#2d3748);">キャンセル</button>
+                <button class="btn btn-success" onclick="submitCreateProgram()">作成</button>
+            </div>
         </div>
     </div>
 
@@ -247,10 +294,45 @@
         function exportSelected() {
             const program = getSelectedProgram();
             if (program) {
-                const filename = prompt('ファイル名を入力してください:', program.name);
-                if (filename === null) return;
-                window.location.href = '/api/export/' + program.id + '?filename=' + encodeURIComponent(filename);
+                document.getElementById('export-name').value = program.name;
+                document.getElementById('export-program-id').value = program.id;
+                document.getElementById('export-modal').style.display = 'block';
+                document.getElementById('export-name').focus();
             }
+        }
+
+        function closeExportModal() {
+            document.getElementById('export-modal').style.display = 'none';
+        }
+
+        function submitExport() {
+            const filename = document.getElementById('export-name').value.trim();
+            const programId = document.getElementById('export-program-id').value;
+            if (!filename) {
+                document.getElementById('export-name').focus();
+                return;
+            }
+            closeExportModal();
+            window.location.href = '/api/export/' + programId + '?filename=' + encodeURIComponent(filename);
+        }
+
+        function copySelected() {
+            const program = getSelectedProgram();
+            if (!program) return;
+
+            fetch(`/api/programs/${program.id}/copy`, {
+                method: 'POST'
+            })
+            .then(response => {
+                if (!response.ok) throw new Error('コピーに失敗しました');
+                return response.json();
+            })
+            .then(data => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
+            });
         }
 
         function deleteSelected() {
@@ -270,20 +352,21 @@
         }
 
         function createNewProgram() {
-            const name = prompt('プログラム名を入力してください:', '新規プログラム');
-            if (!name) return;
+            document.getElementById('create-modal').style.display = 'block';
+            document.getElementById('create-name').focus();
+        }
 
-            const sampleRateChoice = prompt(
-                'サンプリングレートを選択してください:\n' +
-                '1: 48000 Hz (動画/放送品質・標準)\n' +
-                '2: 44100 Hz (CD品質)\n' +
-                '3: 22050 Hz (低品質・軽量)\n' +
-                '4: 96000 Hz (ハイレゾ)',
-                '1'
-            );
+        function closeCreateModal() {
+            document.getElementById('create-modal').style.display = 'none';
+        }
 
-            const sampleRates = { '1': 48000, '2': 44100, '3': 22050, '4': 96000 };
-            const sampleRate = sampleRates[sampleRateChoice] || 48000;
+        function submitCreateProgram() {
+            const name = document.getElementById('create-name').value.trim();
+            if (!name) {
+                document.getElementById('create-name').focus();
+                return;
+            }
+            const sampleRate = parseInt(document.getElementById('create-sample-rate').value);
 
             fetch('/api/programs', {
                 method: 'POST',
@@ -304,6 +387,30 @@
                 alert('エラーが発生しました: ' + error);
             });
         }
+
+        // モーダル外クリックで閉じる
+        document.getElementById('create-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeCreateModal();
+        });
+        document.getElementById('export-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeExportModal();
+        });
+
+        // Enterキーで実行
+        document.getElementById('create-name').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') submitCreateProgram();
+        });
+        document.getElementById('export-name').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') submitExport();
+        });
+
+        // Escキーでモーダルを閉じる
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                if (document.getElementById('create-modal').style.display === 'block') closeCreateModal();
+                if (document.getElementById('export-modal').style.display === 'block') closeExportModal();
+            }
+        });
 
         function stopPlayback() {
             stopWebAudio();

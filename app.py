@@ -19,7 +19,10 @@ import tempfile
 from models import Program, Stage, Track, PlaybackStatus
 from audio_generator import AudioGenerator
 
-app = FastAPI(title="音波洗浄システム")
+# バージョン情報
+APP_VERSION = Path("VERSION").read_text().strip()
+
+app = FastAPI(title="音波洗浄システム", version=APP_VERSION)
 
 # オーディオバックエンド設定（"paplay" or "sounddevice"）
 # コマンドライン引数で指定可能（デフォルトはpaplay）
@@ -251,7 +254,8 @@ async def index(request: Request):
     """プログラム一覧ページ"""
     return templates.TemplateResponse("index.html", {
         "request": request,
-        "programs": list(programs_db.values())
+        "programs": list(programs_db.values()),
+        "version": APP_VERSION
     })
 
 
@@ -342,6 +346,21 @@ async def update_program(program_id: str, updates: dict) -> Program:
 
     save_program_to_disk(program)
     return program
+
+
+@app.post("/api/programs/{program_id}/copy")
+async def copy_program(program_id: str) -> Program:
+    """プログラムをコピー"""
+    if program_id not in programs_db:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    source = programs_db[program_id]
+    new_program = Program(**source.model_dump())
+    new_program.id = str(uuid.uuid4())
+    new_program.name = f"Copy_{source.name}"
+    programs_db[new_program.id] = new_program
+    save_program_to_disk(new_program)
+    return new_program
 
 
 @app.delete("/api/programs/{program_id}")
