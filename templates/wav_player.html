@@ -352,6 +352,99 @@
             opacity: 0.4;
             pointer-events: none;
         }
+
+        /* インターバル再生 */
+        .interval-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .interval-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .interval-header h4 {
+            margin: 0;
+            color: #ffffff;
+        }
+
+        .interval-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .interval-toggle input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .interval-input-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .interval-input-group label {
+            color: #a0aec0;
+            min-width: 60px;
+        }
+
+        .interval-input-group input {
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 14px;
+            width: 100px;
+        }
+
+        .interval-input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .interval-input-group span {
+            color: #a0aec0;
+        }
+
+        .interval-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            color: #a0aec0;
+        }
+
+        .interval-status.active {
+            background: rgba(102, 126, 234, 0.2);
+            color: #ffffff;
+        }
+
+        .interval-status.waiting {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+        }
+
+        .interval-status .remaining {
+            font-weight: 600;
+            color: #38ef7d;
+        }
+
+        .interval-disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -408,6 +501,34 @@
                     </svg>
                     <input type="range" id="volume-slider" min="0" max="100" value="80" oninput="changeVolume(this.value)">
                     <span class="volume-label" id="volume-label">80%</span>
+                </div>
+            </div>
+
+            <!-- インターバル再生 -->
+            <div class="interval-section">
+                <div class="interval-header">
+                    <h4>インターバル再生</h4>
+                    <div class="interval-toggle">
+                        <input type="checkbox" id="interval-enabled" onchange="toggleInterval()">
+                        <label for="interval-enabled">有効</label>
+                    </div>
+                </div>
+
+                <div id="interval-options" class="interval-disabled">
+                    <div class="interval-input-group">
+                        <label>間隔</label>
+                        <input type="number" id="interval-minutes" value="10" min="1" max="1440">
+                        <span>分ごとに再生</span>
+                    </div>
+                </div>
+
+                <div class="interval-status" id="interval-status">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <span id="interval-status-text">インターバル: OFF</span>
+                    <span class="loop-count" id="interval-count-display"></span>
                 </div>
             </div>
 
@@ -539,6 +660,13 @@
         let shouldStopAfterLoop = false;
         let timerIntervalId = null;
 
+        // インターバル再生管理
+        let intervalEnabled = false;
+        let intervalWaitTimerId = null;   // 待機中のsetTimeout
+        let intervalCountdownId = null;   // カウントダウン表示用のsetInterval
+        let intervalPlayCount = 0;
+        let isWaitingInterval = false;    // インターバル待機中フラグ
+
         // 初期化
         function initAudioContext() {
             if (!audioContext) {
@@ -599,15 +727,50 @@
             currentSource.connect(gainNode);
 
             currentSource.onended = function() {
-                // タイマーが有効な場合は全モードでループを有効にする
+                // インターバルモードの場合
+                if (intervalEnabled && isPlaying) {
+                    loopCount++;
+                    intervalPlayCount++;
+                    updateLoopCountDisplay();
+                    updateIntervalCountDisplay();
+
+                    // 停止タイマーチェック
+                    if (timerEnabled) {
+                        if (timerMode === 'count') {
+                            const targetCount = parseInt(document.getElementById('timer-count').value) || 5;
+                            if (loopCount >= targetCount) {
+                                stopPlayback();
+                                timerComplete();
+                                return;
+                            }
+                        }
+                        if (shouldStopAfterLoop) {
+                            shouldStopAfterLoop = false;
+                            stopPlayback();
+                            timerComplete();
+                            return;
+                        }
+                    }
+
+                    // インターバル待機開始
+                    pauseTime = 0;
+                    isPlaying = false;
+                    isWaitingInterval = true;
+                    updatePlayButton();
+                    cancelAnimationFrame(animationId);
+                    document.getElementById('progress-fill').style.width = '0%';
+                    document.getElementById('current-time').textContent = '0:00';
+                    startIntervalWait();
+                    return;
+                }
+
+                // 通常ループ（タイマー含む）
                 const shouldLoop = isLooping || timerEnabled;
 
                 if (shouldLoop && isPlaying) {
-                    // ループ時：カウントを増やす
                     loopCount++;
                     updateLoopCountDisplay();
 
-                    // 回数指定タイマーの場合、ここで直接チェック（1秒インターバルに依存しない）
                     if (timerEnabled && timerMode === 'count') {
                         const targetCount = parseInt(document.getElementById('timer-count').value) || 5;
                         if (loopCount >= targetCount) {
@@ -617,7 +780,6 @@
                         }
                     }
 
-                    // 他のタイマーモード（時間指定等）での停止フラグチェック
                     if (shouldStopAfterLoop) {
                         shouldStopAfterLoop = false;
                         stopPlayback();
@@ -625,7 +787,6 @@
                         return;
                     }
 
-                    // 次のループを開始
                     pauseTime = 0;
                     playAudio();
                 } else if (!shouldLoop && isPlaying) {
@@ -648,6 +809,13 @@
             // タイマーが有効で未開始なら開始
             if (timerEnabled && !timerIntervalId) {
                 startTimer();
+            }
+
+            // インターバル表示更新
+            if (intervalEnabled) {
+                document.getElementById('interval-status-text').textContent = '再生中...';
+                document.getElementById('interval-status').classList.add('active');
+                document.getElementById('interval-status').classList.remove('waiting');
             }
 
             // ファイル一覧の表示更新
@@ -683,6 +851,7 @@
             }
             pauseTime = 0;
             isPlaying = false;
+            isWaitingInterval = false;
             updatePlayButton();
             cancelAnimationFrame(animationId);
 
@@ -692,6 +861,14 @@
             document.querySelectorAll('.file-item').forEach(el => {
                 el.classList.remove('playing');
             });
+
+            // インターバル待機をクリア
+            cancelIntervalWait();
+            intervalPlayCount = 0;
+            updateIntervalCountDisplay();
+            if (intervalEnabled) {
+                document.getElementById('interval-status-text').textContent = '再生開始でインターバル開始';
+            }
 
             // タイマー状態をリセット
             stopTimer();
@@ -706,6 +883,14 @@
         function togglePlay() {
             if (!audioBuffer) {
                 alert('ファイルを選択してください');
+                return;
+            }
+
+            // インターバル待機中に押されたら待機をキャンセルして即再生
+            if (isWaitingInterval) {
+                cancelIntervalWait();
+                isWaitingInterval = false;
+                playAudio();
                 return;
             }
 
@@ -782,6 +967,11 @@
                 if (timerEnabled) {
                     document.getElementById('timer-enabled').checked = false;
                     toggleTimer();
+                }
+                // インターバルも無効化
+                if (intervalEnabled) {
+                    document.getElementById('interval-enabled').checked = false;
+                    toggleInterval();
                 }
             } else {
                 // 繰り返しOFF → タイマー表示（回数/時間指定で繰り返し）
@@ -872,6 +1062,134 @@
                 togglePlay();
             }
         });
+
+        // ===== インターバル再生機能 =====
+
+        function toggleInterval() {
+            intervalEnabled = document.getElementById('interval-enabled').checked;
+            const statusEl = document.getElementById('interval-status');
+            const optionsEl = document.getElementById('interval-options');
+
+            if (intervalEnabled) {
+                statusEl.classList.add('active');
+                optionsEl.classList.remove('interval-disabled');
+
+                // 無限ループをOFFにする（インターバルと排他）
+                if (isLooping) {
+                    document.getElementById('loop-checkbox').checked = false;
+                    toggleLoop();
+                }
+
+                if (isPlaying) {
+                    document.getElementById('interval-status-text').textContent = '再生中...次の待機は再生終了後';
+                } else {
+                    document.getElementById('interval-status-text').textContent = '再生開始でインターバル開始';
+                }
+            } else {
+                cancelIntervalWait();
+                isWaitingInterval = false;
+                intervalPlayCount = 0;
+                statusEl.classList.remove('active');
+                statusEl.classList.remove('waiting');
+                optionsEl.classList.add('interval-disabled');
+                document.getElementById('interval-status-text').textContent = 'インターバル: OFF';
+                updateIntervalCountDisplay();
+            }
+        }
+
+        function startIntervalWait() {
+            const minutes = parseInt(document.getElementById('interval-minutes').value) || 10;
+            const waitMs = minutes * 60 * 1000;
+            const waitEndTime = Date.now() + waitMs;
+
+            const statusEl = document.getElementById('interval-status');
+            statusEl.classList.add('waiting');
+
+            // カウントダウン表示を更新
+            intervalCountdownId = setInterval(() => {
+                const remainingMs = waitEndTime - Date.now();
+
+                // 停止タイマーチェック（待機中にも効かせる）
+                if (timerEnabled && checkTimerExpired()) {
+                    cancelIntervalWait();
+                    isWaitingInterval = false;
+                    statusEl.classList.remove('waiting');
+                    timerComplete();
+                    return;
+                }
+
+                if (remainingMs <= 0) {
+                    return; // setTimeoutで処理する
+                }
+                const remainingSec = Math.ceil(remainingMs / 1000);
+                const m = Math.floor(remainingSec / 60);
+                const s = remainingSec % 60;
+                document.getElementById('interval-status-text').innerHTML =
+                    `次の再生まで: <span class="remaining">${m}:${s.toString().padStart(2, '0')}</span>`;
+            }, 1000);
+
+            // 待機完了後に再生
+            intervalWaitTimerId = setTimeout(() => {
+                clearInterval(intervalCountdownId);
+                intervalCountdownId = null;
+                statusEl.classList.remove('waiting');
+                isWaitingInterval = false;
+
+                // 停止タイマー最終チェック
+                if (timerEnabled && checkTimerExpired()) {
+                    timerComplete();
+                    return;
+                }
+
+                document.getElementById('interval-status-text').textContent = '再生中...';
+                playAudio();
+            }, waitMs);
+
+            // 初回表示
+            const m = Math.floor(minutes);
+            document.getElementById('interval-status-text').innerHTML =
+                `次の再生まで: <span class="remaining">${m}:00</span>`;
+        }
+
+        function cancelIntervalWait() {
+            if (intervalWaitTimerId) {
+                clearTimeout(intervalWaitTimerId);
+                intervalWaitTimerId = null;
+            }
+            if (intervalCountdownId) {
+                clearInterval(intervalCountdownId);
+                intervalCountdownId = null;
+            }
+            const statusEl = document.getElementById('interval-status');
+            statusEl.classList.remove('waiting');
+        }
+
+        function updateIntervalCountDisplay() {
+            const display = document.getElementById('interval-count-display');
+            if (intervalEnabled && intervalPlayCount > 0) {
+                display.textContent = `再生回数: ${intervalPlayCount}`;
+            } else {
+                display.textContent = '';
+            }
+        }
+
+        // 停止タイマーが期限切れかチェック（インターバル待機中にも使う）
+        function checkTimerExpired() {
+            if (!timerEnabled) return false;
+
+            if (timerMode === 'duration') {
+                const minutes = parseInt(document.getElementById('timer-minutes').value) || 30;
+                const targetMs = minutes * 60 * 1000;
+                const elapsed = Date.now() - timerStartTime;
+                return elapsed >= targetMs;
+            } else if (timerMode === 'time') {
+                return timerTargetTime && Date.now() >= timerTargetTime;
+            } else if (timerMode === 'count') {
+                const targetCount = parseInt(document.getElementById('timer-count').value) || 5;
+                return loopCount >= targetCount;
+            }
+            return false;
+        }
 
         // ===== タイマー機能 =====
 
