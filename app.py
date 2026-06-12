@@ -90,14 +90,26 @@ def delete_program_from_disk(program_id: str):
         file_path.unlink()
 
 
-def generate_audio_for_track(track: Track, duration: float, generator: AudioGenerator) -> np.ndarray:
-    """トラックの音声データを生成（ステージのdurationを使用）"""
+def generate_audio_for_track(track: Track, duration: float, generator: AudioGenerator, mode: str = "mono") -> np.ndarray:
+    """トラックの音声データを生成（ステージのdurationを使用）
+
+    mode="mono" のときは Δf を実効0にして L=R（1個運用）にする。
+    mode="beat" のときは track の delta_f 系を有効にして L≠R（2個運用・うなり）。
+    """
+    # monoモードではΔfを無効化（L=R）
+    df = 0.0 if mode == "mono" else track.delta_f
+    df_end = None if mode == "mono" else track.delta_f_end
+    df_period = None if mode == "mono" else track.delta_f_period
+
     if track.type == "tone":
         return generator.generate_tone(
             frequency=track.frequency,
             duration=duration,
             wave_type=track.wave_type,
-            volume=track.volume
+            volume=track.volume,
+            delta_f=df,
+            delta_f_end=df_end,
+            delta_f_period=df_period,
         )
     elif track.type == "sweep":
         return generator.generate_sweep(
@@ -106,7 +118,10 @@ def generate_audio_for_track(track: Track, duration: float, generator: AudioGene
             sweep_period=track.sweep_period,
             duration=duration,
             wave_type=track.wave_type,
-            volume=track.volume
+            volume=track.volume,
+            delta_f=df,
+            delta_f_end=df_end,
+            delta_f_period=df_period,
         )
     elif track.type == "wave_file":
         # WAVファイル読み込み処理（後で実装）
@@ -115,16 +130,16 @@ def generate_audio_for_track(track: Track, duration: float, generator: AudioGene
         raise ValueError(f"Unknown track type: {track.type}")
 
 
-def generate_audio_for_stage(stage: Stage, generator: AudioGenerator) -> np.ndarray:
+def generate_audio_for_stage(stage: Stage, generator: AudioGenerator, mode: str = "mono") -> np.ndarray:
     """ステージの音声データを生成（有効なトラックのみミックス）"""
     audio_tracks = []
     for track in stage.tracks:
         if track.enabled:  # 有効なトラックのみ処理
-            audio_tracks.append(generate_audio_for_track(track, stage.duration, generator))
+            audio_tracks.append(generate_audio_for_track(track, stage.duration, generator, mode))
 
     if not audio_tracks:
-        # 空のステージの場合、ステージの時間分の無音を返す
-        return np.zeros(int(generator.sample_rate * stage.duration), dtype=np.float32)
+        # 空のステージの場合、ステージの時間分の無音を返す（2ch）
+        return np.zeros((int(generator.sample_rate * stage.duration), 2), dtype=np.float32)
 
     return AudioGenerator.mix_tracks(audio_tracks)
 
@@ -199,7 +214,7 @@ def play_audio_realtime(audio_data: np.ndarray, sample_rate: int):
             tmp_path = tmp_file.name
 
         try:
-            audio_int16 = np.int16(audio_data * 32767)
+            audio_int16 = np.int16(np.clip(audio_data, -1.0, 1.0) * 32767)
             wavfile.write(tmp_path, sample_rate, audio_int16)
 
             with playback_lock:
@@ -339,6 +354,8 @@ async def update_program(program_id: str, updates: dict) -> Program:
     # 部分更新: 渡されたフィールドのみ更新
     if "name" in updates:
         program.name = updates["name"]
+    if "mode" in updates:
+        program.mode = updates["mode"]
     if "sample_rate" in updates:
         program.sample_rate = updates["sample_rate"]
     if "stages" in updates:
@@ -478,7 +495,7 @@ def _play_program_task(program_id: str):
     # 事前に全ステージの音声を生成
     stage_audios = []
     for stage in program.stages:
-        stage_audio = generate_audio_for_stage(stage, generator)
+        stage_audio = generate_audio_for_stage(stage, generator, program.mode)
         stage_audios.append(stage_audio)
 
     stage_idx = 0
@@ -618,7 +635,7 @@ def _play_stage_task(program_id: str, stage_idx: int):
     stage = program.stages[stage_idx]
 
     # ステージの音声を生成
-    stage_audio = generate_audio_for_stage(stage, generator)
+    stage_audio = generate_audio_for_stage(stage, generator, program.mode)
 
     # リアルタイム再生
     play_audio_realtime(stage_audio, generator.sample_rate)
@@ -658,7 +675,7 @@ def _play_track_task(program_id: str, stage_idx: int, track_idx: int):
     track = stage.tracks[track_idx]
 
     # トラックの音声を生成（ステージのdurationを使用）
-    track_audio = generate_audio_for_track(track, stage.duration, generator)
+    track_audio = generate_audio_for_track(track, stage.duration, generator, program.mode)
 
     # リアルタイム再生
     play_audio_realtime(track_audio, generator.sample_rate)
@@ -714,24 +731,26 @@ async def get_stage_waveform_data(program_id: str, stage_idx: int, full: bool = 
     stage = program.stages[stage_idx]
 
     # ステージの音声を生成
-    stage_audio = generate_audio_for_stage(stage, generator)
+    stage_audio = generate_audio_for_stage(stage, generator, program.mode)
 
     if full:
-        # 全サンプルを返す（Web Audio再生用）
+        # 全サンプルを返す（Web Audio再生用）。2chは (n,2) のまま返す
         audio_data = stage_audio.tolist()
     else:
-        # ダウンサンプリング（表示用）
+        # 表示用: L ch を1D化してダウンサンプリング
+        wf = stage_audio[:, 0] if stage_audio.ndim == 2 else stage_audio
         max_samples = 5000
-        if len(stage_audio) > max_samples:
-            step = len(stage_audio) // max_samples
-            audio_data = stage_audio[::step].tolist()
+        if len(wf) > max_samples:
+            step = len(wf) // max_samples
+            audio_data = wf[::step].tolist()
         else:
-            audio_data = stage_audio.tolist()
+            audio_data = wf.tolist()
 
     return {
         "waveform": audio_data,
         "duration": stage.duration,
-        "sample_rate": generator.sample_rate
+        "sample_rate": generator.sample_rate,
+        "channels": 2 if stage_audio.ndim == 2 else 1
     }
 
 
@@ -747,14 +766,14 @@ async def get_program_waveform_data(program_id: str):
     # 全ステージの音声を生成して連結
     all_audio = []
     for stage in program.stages:
-        stage_audio = generate_audio_for_stage(stage, generator)
+        stage_audio = generate_audio_for_stage(stage, generator, program.mode)
         all_audio.append(stage_audio)
 
-    # 連結
+    # 連結（(n,2)同士を軸0連結）
     if all_audio:
         combined_audio = np.concatenate(all_audio)
     else:
-        combined_audio = np.zeros(generator.sample_rate, dtype=np.float32)
+        combined_audio = np.zeros((generator.sample_rate, 2), dtype=np.float32)
 
     # 総再生時間を計算
     total_duration = sum(stage.duration for stage in program.stages)
@@ -762,7 +781,8 @@ async def get_program_waveform_data(program_id: str):
     return {
         "waveform": combined_audio.tolist(),
         "duration": total_duration,
-        "sample_rate": generator.sample_rate
+        "sample_rate": generator.sample_rate,
+        "channels": 2 if combined_audio.ndim == 2 else 1
     }
 
 
@@ -784,12 +804,13 @@ async def get_track_waveform_data(program_id: str, stage_idx: int, track_idx: in
     track = stage.tracks[track_idx]
 
     # トラックの音声を生成
-    track_audio = generate_audio_for_track(track, stage.duration, generator)
+    track_audio = generate_audio_for_track(track, stage.duration, generator, program.mode)
 
     return {
         "waveform": track_audio.tolist(),
         "duration": stage.duration,
-        "sample_rate": generator.sample_rate
+        "sample_rate": generator.sample_rate,
+        "channels": 2 if track_audio.ndim == 2 else 1
     }
 
 
@@ -807,21 +828,21 @@ async def export_program(program_id: str, filename: str = None):
     # 全ステージの音声を生成して連結
     all_audio = []
     for stage in program.stages:
-        stage_audio = generate_audio_for_stage(stage, generator)
+        stage_audio = generate_audio_for_stage(stage, generator, program.mode)
         all_audio.append(stage_audio)
 
-    # 連結
+    # 連結（(n,2)同士を軸0連結）
     if all_audio:
         combined_audio = np.concatenate(all_audio)
     else:
-        combined_audio = np.zeros(generator.sample_rate, dtype=np.float32)
+        combined_audio = np.zeros((generator.sample_rate, 2), dtype=np.float32)
 
     # ファイル名を決定
     export_name = filename if filename else program.name
 
-    # WAVファイルとして保存
+    # WAVファイルとして保存（2ch・clip保護）
     output_file = EXPORTS_DIR / f"{export_name}_{program.id}.wav"
-    audio_int16 = np.int16(combined_audio * 32767)
+    audio_int16 = np.int16(np.clip(combined_audio, -1.0, 1.0) * 32767)
     wavfile.write(str(output_file), generator.sample_rate, audio_int16)
 
     return FileResponse(

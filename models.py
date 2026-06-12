@@ -16,6 +16,12 @@ class Track(BaseModel):
     sweep_end: Optional[int] = Field(None, ge=20, le=40000)
     sweep_period: Optional[float] = Field(None, gt=0)
 
+    # beat方式(2個運用)用: L/R周波数差[Hz]。符号が走査の向き、絶対値が走査速度。
+    # monoモードでは無視される(L=R)。0.0 = L/R同一。推奨レンジ |Δf| 0.1〜1.0Hz。
+    delta_f: float = Field(default=0.0, description="L/R周波数差[Hz](一定値 or スイープ開始値、符号付き)")
+    delta_f_end: Optional[float] = Field(default=None, description="設定時Δfをここまでスイープ(往復)")
+    delta_f_period: Optional[float] = Field(default=None, gt=0, description="Δfスイープ周期[秒](fcのsweep_periodと独立)")
+
     # wave_file用
     file_path: Optional[str] = None
     play_mode: Optional[Literal["once", "repeat"]] = None
@@ -53,6 +59,7 @@ class Program(BaseModel):
     """プログラム定義"""
     id: Optional[str] = None
     name: str
+    mode: Literal["mono", "beat"] = Field(default="mono", description="mono=1個運用(L=R) / beat=2個運用(うなり)")
     stages: List[Stage] = Field(default_factory=list)
     sample_rate: int = Field(default=44100)
 
@@ -60,6 +67,7 @@ class Program(BaseModel):
         json_schema_extra = {
             "example": {
                 "name": "音波洗浄プログラム1",
+                "mode": "mono",
                 "stages": [],
                 "sample_rate": 44100
             }

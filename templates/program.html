@@ -29,6 +29,14 @@
             <span class="editable" onclick="editSampleRate('{{ program.id }}', this)" title="クリックして編集">
                 サンプリングレート: {{ program.sample_rate }} Hz
             </span>
+            <span style="margin-left: 20px;">
+                出力モード:
+                <select id="program-mode" onchange="setProgramMode('{{ program.id }}', this.value)"
+                        title="mono=1個運用(L=R) / beat=2個運用(うなり)">
+                    <option value="mono" {% if program.mode == 'mono' %}selected{% endif %}>mono（1個運用・L=R）</option>
+                    <option value="beat" {% if program.mode == 'beat' %}selected{% endif %}>beat（2個運用・うなり）</option>
+                </select>
+            </span>
         </div>
 
         <!-- ステージセクション -->
@@ -85,6 +93,9 @@
                             <p><strong>スイープ:</strong> {{ track.sweep_start }}-{{ track.sweep_end }}Hz (周期{{ track.sweep_period }}秒) | <strong>波形:</strong> {{ track.wave_type }} | <strong>音量:</strong> {{ (track.volume * 100)|int }}%</p>
                             {% elif track.type == "wave_file" %}
                             <p><strong>ファイル:</strong> {{ track.file_path }} | <strong>モード:</strong> {{ track.play_mode }} | <strong>音量:</strong> {{ (track.volume * 100)|int }}%</p>
+                            {% endif %}
+                            {% if program.mode == "beat" and track.type in ["tone", "sweep"] %}
+                            <p style="color: #16a085; font-size: 13px;"><strong>うなり Δf:</strong> {{ track.delta_f }}Hz{% if track.delta_f_end is not none %} → {{ track.delta_f_end }}Hz (周期{{ track.delta_f_period }}秒スイープ){% endif %}</p>
                             {% endif %}
                         </div>
                         <div class="track-actions">
@@ -215,6 +226,24 @@
                             </div>
                         </div>
 
+                        <!-- うなり(beat)フィールド: tone/sweep共通。beatモードでのみ有効 -->
+                        <div id="beat-fields-{{ stage_idx }}" class="track-type-fields">
+                            <div class="form-row" style="border-top: 1px dashed #16a085; padding-top: 10px;">
+                                <div class="form-group">
+                                    <label title="符号=走査の向き, 絶対値=速度。beatモードでのみ有効">うなり Δf (Hz):</label>
+                                    <input type="number" id="beat-delta-f-{{ stage_idx }}" value="0" step="0.05" min="-5" max="5">
+                                </div>
+                                <div class="form-group">
+                                    <label title="空欄=Δf一定。値を入れるとΔfをスイープ(往復)">Δfスイープ終値 (任意):</label>
+                                    <input type="number" id="beat-delta-f-end-{{ stage_idx }}" placeholder="空=一定" step="0.05" min="-5" max="5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Δfスイープ周期 (秒):</label>
+                                    <input type="number" id="beat-delta-f-period-{{ stage_idx }}" placeholder="例: 20" step="0.1" min="0.1">
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- 共通フィールド -->
                         <div class="form-row">
                             <div class="form-group">
@@ -291,9 +320,17 @@
                 await ctx.resume();
             }
 
-            const floatData = new Float32Array(audioData);
-            const audioBuffer = ctx.createBuffer(1, floatData.length, sampleRate);
-            audioBuffer.getChannelData(0).set(floatData);
+            // audioData が [[L,R],...] (2ch) か [v,...] (1ch) かを判定
+            const isStereo = Array.isArray(audioData[0]);
+            const n = audioData.length;
+            const audioBuffer = ctx.createBuffer(isStereo ? 2 : 1, n, sampleRate);
+            if (isStereo) {
+                const L = audioBuffer.getChannelData(0);
+                const R = audioBuffer.getChannelData(1);
+                for (let i = 0; i < n; i++) { L[i] = audioData[i][0]; R[i] = audioData[i][1]; }
+            } else {
+                audioBuffer.getChannelData(0).set(new Float32Array(audioData));
+            }
 
             currentGainNode = ctx.createGain();
             currentGainNode.connect(ctx.destination);
@@ -370,6 +407,25 @@
             } else if (trackType === 'wave_file') {
                 document.getElementById('wave-file-fields-' + stageIdx).style.display = 'block';
             }
+
+            // うなり(Δf)フィールドは tone/sweep のときだけ表示
+            const beatFields = document.getElementById('beat-fields-' + stageIdx);
+            if (beatFields) {
+                beatFields.style.display = (trackType === 'tone' || trackType === 'sweep') ? 'block' : 'none';
+            }
+        }
+
+        // Δf入力をtrackDataに反映する共通ヘルパー
+        function applyDeltaF(trackData, deltaFEl, deltaFEndEl, deltaFPeriodEl) {
+            if (deltaFEl && deltaFEl.value !== '') {
+                trackData.delta_f = parseFloat(deltaFEl.value);
+            }
+            if (deltaFEndEl && deltaFEndEl.value !== '') {
+                trackData.delta_f_end = parseFloat(deltaFEndEl.value);
+                if (deltaFPeriodEl && deltaFPeriodEl.value !== '') {
+                    trackData.delta_f_period = parseFloat(deltaFPeriodEl.value);
+                }
+            }
         }
 
         function addTrack(programId, stageIdx) {
@@ -394,6 +450,16 @@
                 trackData.file_path = document.getElementById('wave-file-path-' + stageIdx).value;
                 trackData.play_mode = document.getElementById('wave-play-mode-' + stageIdx).value;
                 trackData.repeat_period = parseFloat(document.getElementById('wave-repeat-period-' + stageIdx).value);
+            }
+
+            // うなり(Δf)を反映（tone/sweepのみ）
+            if (trackType === 'tone' || trackType === 'sweep') {
+                applyDeltaF(
+                    trackData,
+                    document.getElementById('beat-delta-f-' + stageIdx),
+                    document.getElementById('beat-delta-f-end-' + stageIdx),
+                    document.getElementById('beat-delta-f-period-' + stageIdx)
+                );
             }
 
             fetch(`/api/programs/${programId}/stages/${stageIdx}/tracks`, {
@@ -605,6 +671,27 @@
                     `;
                 }
 
+                if (track.type === 'tone' || track.type === 'sweep') {
+                    const dfEnd = (track.delta_f_end === null || track.delta_f_end === undefined) ? '' : track.delta_f_end;
+                    const dfPeriod = (track.delta_f_period === null || track.delta_f_period === undefined) ? '' : track.delta_f_period;
+                    formHtml += `
+                        <div class="form-row" style="border-top: 1px dashed #16a085; padding-top: 10px;">
+                            <div class="form-group">
+                                <label title="符号=走査の向き, 絶対値=速度。beatモードでのみ有効">うなり Δf (Hz):</label>
+                                <input type="number" id="edit-delta-f" value="${track.delta_f || 0}" step="0.05" min="-5" max="5">
+                            </div>
+                            <div class="form-group">
+                                <label title="空欄=Δf一定。値を入れるとΔfをスイープ(往復)">Δfスイープ終値 (任意):</label>
+                                <input type="number" id="edit-delta-f-end" value="${dfEnd}" placeholder="空=一定" step="0.05" min="-5" max="5">
+                            </div>
+                            <div class="form-group">
+                                <label>Δfスイープ周期 (秒):</label>
+                                <input type="number" id="edit-delta-f-period" value="${dfPeriod}" placeholder="例: 20" step="0.1" min="0.1">
+                            </div>
+                        </div>
+                    `;
+                }
+
                 formHtml += `
                     <div class="form-row">
                         <div class="form-group">
@@ -668,6 +755,16 @@
                 trackData.file_path = document.getElementById('edit-file-path').value;
                 trackData.play_mode = document.getElementById('edit-play-mode').value;
                 trackData.repeat_period = parseFloat(document.getElementById('edit-repeat-period').value);
+            }
+
+            // うなり(Δf)を反映（tone/sweepのみ）
+            if (trackType === 'tone' || trackType === 'sweep') {
+                applyDeltaF(
+                    trackData,
+                    document.getElementById('edit-delta-f'),
+                    document.getElementById('edit-delta-f-end'),
+                    document.getElementById('edit-delta-f-period')
+                );
             }
 
             fetch(`/api/programs/${programId}/stages/${stageIdx}/tracks/${trackIdx}`, {
@@ -754,6 +851,25 @@
                 } else if (e.key === 'Escape') {
                     element.textContent = currentText;
                 }
+            });
+        }
+
+        function setProgramMode(programId, mode) {
+            fetch(`/api/programs/${programId}`)
+            .then(response => response.json())
+            .then(program => {
+                program.mode = mode;
+                return fetch(`/api/programs/${programId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(program)
+                });
+            })
+            .then(() => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('エラーが発生しました: ' + error);
             });
         }
 
