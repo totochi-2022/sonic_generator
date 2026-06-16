@@ -524,3 +524,25 @@ header.header-edit {
     background: #1a1a2e;
     color: #e0e0e0;
 }
+
+/* mono/beat 判別バッジ */
+.mode-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: bold;
+    vertical-align: middle;
+    letter-spacing: 0.5px;
+}
+.mode-beat {
+    background: rgba(22, 160, 133, 0.25);
+    color: #1abc9c;
+    border: 1px solid #16a085;
+}
+.mode-mono {
+    background: rgba(127, 140, 141, 0.2);
+    color: #95a5a6;
+    border: 1px solid #7f8c8d;
+}

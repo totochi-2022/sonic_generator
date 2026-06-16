@@ -8,8 +8,12 @@
 </head>
 <body>
     <header>
-        <div class="container">
+        <div class="container" style="display:flex; align-items:center;">
             <h1>SonicGenerator <span style="font-size: 14px; opacity: 0.7; font-weight: 400;">v{{ version }}</span></h1>
+            <button id="btn-changelog" style="margin-left:auto; position:relative; background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.3); padding:5px 14px; border-radius:6px; cursor:pointer; font-size:12px;">
+                What's New
+                <span id="btn-changelog-dot" style="display:none; position:absolute; top:-3px; right:-3px; width:9px; height:9px; background:#e74c3c; border-radius:50%; box-shadow:0 0 0 1px #1a1a2e;"></span>
+            </button>
         </div>
     </header>
 
@@ -109,7 +113,14 @@
                             <input type="radio" name="selected-program" id="program-{{ program.id }}" value="{{ program.id }}" data-name="{{ program.name }}">
                         </div>
                         <div class="program-info">
-                            <h3>{{ program.name }}</h3>
+                            <h3>
+                                {{ program.name }}
+                                {% if program.mode == "beat" %}
+                                <span class="mode-badge mode-beat" title="2個運用・うなり(L≠R)">beat</span>
+                                {% else %}
+                                <span class="mode-badge mode-mono" title="1個運用(L=R)">mono</span>
+                                {% endif %}
+                            </h3>
                             <p>
                                 ステージ数: {{ program.stages|length }} /
                                 サンプリングレート: {{ program.sample_rate }} Hz
@@ -502,5 +513,6 @@
             }
         });
     </script>
+    <script src="/static/js/changelog.js"></script>
 </body>
 </html>

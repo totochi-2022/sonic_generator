@@ -264,6 +264,12 @@ async def startup_event():
     load_programs_from_disk()
 
 
+@app.get("/api/version")
+async def get_version():
+    """アプリのバージョン (VERSION ファイル) を返す。What's New の未読判定に使用。"""
+    return {"version": f"v{APP_VERSION}"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """プログラム一覧ページ"""
@@ -286,6 +292,37 @@ async def program_edit(request: Request, program_id: str):
     })
 
 
+def classify_wav_kind(wav_path, max_frames: int = 200000):
+    """WAVの種別を判定して返す。
+
+    2chでL≠R(実体ステレオ) → "beat"(2個運用)
+    1ch、または2chでもL==R → "mono"(1個運用)
+    判定不可 → None
+
+    ※エクスポートは常に2chなので、チャンネル数だけでは区別できず中身を比較する。
+      L/Rのバイト列を直接比較するのでサンプル幅に依存しない。
+    """
+    import wave
+    try:
+        with wave.open(str(wav_path), "rb") as w:
+            nch = w.getnchannels()
+            if nch < 2:
+                return "mono"
+            sw = w.getsampwidth()
+            to_read = min(w.getnframes(), max_frames)
+            frames = w.readframes(to_read)
+        if not frames:
+            return "mono"
+        arr = np.frombuffer(frames, dtype=np.uint8)
+        frame_bytes = nch * sw
+        arr = arr[: (len(arr) // frame_bytes) * frame_bytes].reshape(-1, frame_bytes)
+        left = arr[:, 0:sw]
+        right = arr[:, sw:2 * sw]
+        return "mono" if np.array_equal(left, right) else "beat"
+    except Exception:
+        return None
+
+
 @app.get("/wav-player", response_class=HTMLResponse)
 async def wav_player(request: Request):
     """WAVファイルプレイヤーページ"""
@@ -300,7 +337,8 @@ async def wav_player(request: Request):
         wav_files.append({
             "name": display_name if display_name else wav_path.stem,
             "filename": wav_path.name,
-            "path": f"/exports/{wav_path.name}"
+            "path": f"/exports/{wav_path.name}",
+            "kind": classify_wav_kind(wav_path)  # "mono" / "beat" / None
         })
 
     return templates.TemplateResponse("wav_player.html", {
